@@ -40,16 +40,19 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
             return BadRequest(result.Errors);
 
-        await _userManager.AddToRoleAsync(user, "Citizen");
+        // Определяем роль
+        string role = model.Role ?? "Citizen";
+        if (role != "Citizen" && role != "Deputy")
+            role = "Citizen";
 
-        if (model.Role == "Deputy")
+        // Добавляем роль
+        await _userManager.AddToRoleAsync(user, role);
+
+        // Для депутата требуется подтверждение
+        if (role == "Deputy")
         {
             user.IsApproved = false;
             await _userManager.UpdateAsync(user);
-        }
-        else
-        {
-            await _userManager.AddToRoleAsync(user, model.Role ?? "Citizen");
         }
 
         return Ok(new { Message = "Регистрация успешна" });
@@ -63,6 +66,8 @@ public class AuthController : ControllerBase
             return Unauthorized("Неверный email или пароль.");
 
         var roles = await _userManager.GetRolesAsync(user);
+
+        // Депутат должен быть подтверждён
         if (roles.Contains("Deputy") && !user.IsApproved)
             return Unauthorized("Ваша учётная запись депутата ещё не подтверждена администратором.");
 

@@ -1,6 +1,5 @@
 using CitizenAppealsPortal.Data;
 using CitizenAppealsPortal.Models;
-using CitizenAppealsPortal.Models.DTOs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -9,16 +8,45 @@ using NetTopologySuite.IO;
 
 namespace CitizenAppealsPortal.Controllers;
 
+// Временные DTO классы (если внешний файл не подхватывается)
+public class DistrictDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string? DeputyId { get; set; }
+    public string? DeputyFullName { get; set; }
+    public string BoundaryGeoJson { get; set; } = string.Empty;
+}
+
+public class CreateDistrictDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string BoundaryGeoJson { get; set; } = string.Empty;
+    public string? DeputyId { get; set; }
+}
+
+public class UpdateDistrictDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string? BoundaryGeoJson { get; set; }
+    public string? DeputyId { get; set; }
+}
+
 [Authorize(Roles = "Admin")]
 [ApiController]
 [Route("api/[controller]")]
 public class DistrictsController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
+    private readonly GeoJsonWriter _geoJsonWriter;
 
     public DistrictsController(ApplicationDbContext context)
     {
         _context = context;
+        _geoJsonWriter = new GeoJsonWriter();
     }
 
     [HttpGet]
@@ -28,7 +56,18 @@ public class DistrictsController : ControllerBase
         var districts = await _context.Districts
             .Include(d => d.Deputy)
             .ToListAsync();
-        return Ok(districts);
+
+        var dtos = districts.Select(d => new DistrictDto
+        {
+            Id = d.Id,
+            Name = d.Name,
+            Description = d.Description,
+            DeputyId = d.DeputyId,
+            DeputyFullName = d.Deputy?.FullName,
+            BoundaryGeoJson = _geoJsonWriter.Write(d.Boundary)
+        }).ToList();
+
+        return Ok(dtos);
     }
 
     [HttpGet("{id}")]
@@ -38,8 +77,20 @@ public class DistrictsController : ControllerBase
         var district = await _context.Districts
             .Include(d => d.Deputy)
             .FirstOrDefaultAsync(d => d.Id == id);
+
         if (district == null) return NotFound();
-        return Ok(district);
+
+        var dto = new DistrictDto
+        {
+            Id = district.Id,
+            Name = district.Name,
+            Description = district.Description,
+            DeputyId = district.DeputyId,
+            DeputyFullName = district.Deputy?.FullName,
+            BoundaryGeoJson = _geoJsonWriter.Write(district.Boundary)
+        };
+
+        return Ok(dto);
     }
 
     [HttpPost]
@@ -58,6 +109,7 @@ public class DistrictsController : ControllerBase
         };
         _context.Districts.Add(district);
         await _context.SaveChangesAsync();
+
         return CreatedAtAction(nameof(GetDistrict), new { id = district.Id }, district);
     }
 

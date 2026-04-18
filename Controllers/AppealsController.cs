@@ -21,6 +21,7 @@ public class AppealsController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IGeoService _geoService;
     private readonly IFileService _fileService;
+    private readonly GeoJsonWriter _geoJsonWriter;
 
     public AppealsController(ApplicationDbContext context, UserManager<ApplicationUser> userManager,
         IGeoService geoService, IFileService fileService)
@@ -29,6 +30,7 @@ public class AppealsController : ControllerBase
         _userManager = userManager;
         _geoService = geoService;
         _fileService = fileService;
+        _geoJsonWriter = new GeoJsonWriter();
     }
 
     [HttpGet]
@@ -79,6 +81,29 @@ public class AppealsController : ControllerBase
             .OrderByDescending(a => a.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(a => new AppealDto
+            {
+                Id = a.Id,
+                Title = a.Title,
+                Description = a.Description,
+                Address = a.Address,
+                LocationGeoJson = _geoJsonWriter.Write(a.Location),
+                CreatedAt = a.CreatedAt,
+                UpdatedAt = a.UpdatedAt,
+                Status = a.Status,
+                CitizenId = a.CitizenId,
+                CitizenFullName = a.Citizen.FullName,
+                CategoryId = a.CategoryId,
+                CategoryName = a.Category.Name,
+                DistrictId = a.DistrictId,
+                DistrictName = a.District.Name,
+                Photos = a.Photos.Select(p => new PhotoDto
+                {
+                    Id = p.Id,
+                    FileName = p.FileName,
+                    FilePath = p.FilePath
+                }).ToList()
+            })
             .ToListAsync();
 
         return Ok(new { Total = total, Page = page, PageSize = pageSize, Items = items });
@@ -107,7 +132,39 @@ public class AppealsController : ControllerBase
         if (roles.Contains("Deputy") && appeal.DistrictId != user!.AssignedDistrictId)
             return Forbid();
 
-        return Ok(appeal);
+        var dto = new AppealDto
+        {
+            Id = appeal.Id,
+            Title = appeal.Title,
+            Description = appeal.Description,
+            Address = appeal.Address,
+            LocationGeoJson = _geoJsonWriter.Write(appeal.Location),
+            CreatedAt = appeal.CreatedAt,
+            UpdatedAt = appeal.UpdatedAt,
+            Status = appeal.Status,
+            CitizenId = appeal.CitizenId,
+            CitizenFullName = appeal.Citizen.FullName,
+            CategoryId = appeal.CategoryId,
+            CategoryName = appeal.Category.Name,
+            DistrictId = appeal.DistrictId,
+            DistrictName = appeal.District.Name,
+            Photos = appeal.Photos.Select(p => new PhotoDto
+            {
+                Id = p.Id,
+                FileName = p.FileName,
+                FilePath = p.FilePath
+            }).ToList(),
+            Responses = appeal.Responses.Select(r => new AppealResponseDto
+            {
+                Id = r.Id,
+                Content = r.Content,
+                CreatedAt = r.CreatedAt,
+                IsSystem = r.IsSystem,
+                AuthorFullName = r.Author.FullName
+            }).ToList()
+        };
+
+        return Ok(dto);
     }
 
     [HttpPost]
@@ -163,7 +220,39 @@ public class AppealsController : ControllerBase
             await _context.SaveChangesAsync();
         }
 
-        return CreatedAtAction(nameof(GetAppeal), new { id = appeal.Id }, appeal);
+        // Загружаем обращение со всеми связанными данными для ответа
+        var createdAppeal = await _context.Appeals
+            .Include(a => a.Category)
+            .Include(a => a.District)
+            .Include(a => a.Citizen)
+            .Include(a => a.Photos)
+            .FirstOrDefaultAsync(a => a.Id == appeal.Id);
+
+        var dtoResponse = new AppealDto
+        {
+            Id = createdAppeal!.Id,
+            Title = createdAppeal.Title,
+            Description = createdAppeal.Description,
+            Address = createdAppeal.Address,
+            LocationGeoJson = _geoJsonWriter.Write(createdAppeal.Location),
+            CreatedAt = createdAppeal.CreatedAt,
+            UpdatedAt = createdAppeal.UpdatedAt,
+            Status = createdAppeal.Status,
+            CitizenId = createdAppeal.CitizenId,
+            CitizenFullName = createdAppeal.Citizen.FullName,
+            CategoryId = createdAppeal.CategoryId,
+            CategoryName = createdAppeal.Category.Name,
+            DistrictId = createdAppeal.DistrictId,
+            DistrictName = createdAppeal.District.Name,
+            Photos = createdAppeal.Photos.Select(p => new PhotoDto
+            {
+                Id = p.Id,
+                FileName = p.FileName,
+                FilePath = p.FilePath
+            }).ToList()
+        };
+
+        return CreatedAtAction(nameof(GetAppeal), new { id = appeal.Id }, dtoResponse);
     }
 
     [HttpPut("{id}/status")]
@@ -193,7 +282,7 @@ public class AppealsController : ControllerBase
         _context.AppealResponses.Add(response);
 
         await _context.SaveChangesAsync();
-        return Ok(appeal);
+        return Ok(new { Message = "Статус обновлён" });
     }
 
     [HttpPost("{id}/respond")]
@@ -219,7 +308,7 @@ public class AppealsController : ControllerBase
         _context.AppealResponses.Add(response);
         await _context.SaveChangesAsync();
 
-        return Ok(response);
+        return Ok(new { Message = "Ответ добавлен" });
     }
 
     [HttpDelete("{id}")]
