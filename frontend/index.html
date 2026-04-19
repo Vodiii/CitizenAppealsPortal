@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>Портал обращений граждан</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Шапка -->
+    <header class="header">
+      <div class="logo">
+        <i class="fas fa-city"></i>
+        <span>Гражданин-Депутат</span>
+      </div>
+      <nav class="nav" id="navMenu"></nav>
+      <div class="user-actions" id="navAuth"></div>
+      <div class="burger" id="burgerBtn">
+        <span></span><span></span><span></span>
+      </div>
+    </header>
+
+    <!-- Основной контент -->
+    <main id="mainContent" class="container">
+      <!-- Динамический контент -->
+    </main>
+
+    <!-- Подвал -->
+    <footer class="footer">
+      <p>&copy; 2026 Портал обращений граждан. Все права защищены.</p>
+    </footer>
+
+    <!-- Модальное окно -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <div id="modalBody"></div>
+      </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
