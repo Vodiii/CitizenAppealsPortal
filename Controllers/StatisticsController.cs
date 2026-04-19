@@ -1,4 +1,5 @@
 using CitizenAppealsPortal.Data;
+using CitizenAppealsPortal.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -49,10 +50,8 @@ public class StatisticsController : ControllerBase
             .Select(g => new { CategoryId = g.Key, Count = g.Count(), CategoryName = g.First().Category.Name })
             .ToListAsync();
 
-        var avgTime = await query
-            .Where(a => a.Responses.Any(r => !r.IsSystem))
-            .Select(a => EF.Functions.DateDiffSecond(a.CreatedAt, a.Responses.First().CreatedAt))
-            .AverageAsync();
+        // Временно убираем среднее время ответа для совместимости
+        double? avgTime = null;
 
         return Ok(new
         {

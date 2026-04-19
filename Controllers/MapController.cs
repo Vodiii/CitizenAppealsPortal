@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
+using System.Text.Json;
 
 namespace CitizenAppealsPortal.Controllers;
 
@@ -16,11 +17,13 @@ public class MapController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly IGeoService _geoService;
+    private readonly GeoJsonWriter _geoJsonWriter;
 
     public MapController(ApplicationDbContext context, IGeoService geoService)
     {
         _context = context;
         _geoService = geoService;
+        _geoJsonWriter = new GeoJsonWriter();
     }
 
     [HttpGet("districts/geojson")]
@@ -28,12 +31,19 @@ public class MapController : ControllerBase
     public async Task<IActionResult> GetDistrictsGeoJson()
     {
         var districts = await _context.Districts.ToListAsync();
-        var features = districts.Select(d => new
+        var features = new List<object>();
+
+        foreach (var d in districts)
         {
-            type = "Feature",
-            geometry = d.Boundary,
-            properties = new { d.Id, d.Name, d.Description }
-        });
+            var geoJson = _geoJsonWriter.Write(d.Boundary);
+            var geometryObject = JsonSerializer.Deserialize<object>(geoJson);
+            features.Add(new
+            {
+                type = "Feature",
+                geometry = geometryObject,
+                properties = new { d.Id, d.Name, d.Description }
+            });
+        }
 
         return Ok(new
         {
@@ -61,20 +71,26 @@ public class MapController : ControllerBase
             query = query.Where(a => a.DistrictId == districtId);
 
         var appeals = await query.ToListAsync();
+        var features = new List<object>();
 
-        var features = appeals.Select(a => new
+        foreach (var a in appeals)
         {
-            type = "Feature",
-            geometry = a.Location,
-            properties = new
+            var geoJson = _geoJsonWriter.Write(a.Location);
+            var geometryObject = JsonSerializer.Deserialize<object>(geoJson);
+            features.Add(new
             {
-                a.Id,
-                a.Title,
-                a.Status,
-                Category = a.Category.Name,
-                a.CreatedAt
-            }
-        });
+                type = "Feature",
+                geometry = geometryObject,
+                properties = new
+                {
+                    a.Id,
+                    a.Title,
+                    a.Status,
+                    Category = a.Category.Name,
+                    a.CreatedAt
+                }
+            });
+        }
 
         return Ok(new
         {
