@@ -8,7 +8,7 @@ using NetTopologySuite.IO;
 
 namespace CitizenAppealsPortal.Controllers;
 
-// Временные DTO классы (если внешний файл не подхватывается)
+// DTO классы внутри файла (можно вынести в отдельные файлы)
 public class DistrictDto
 {
     public int Id { get; set; }
@@ -110,7 +110,21 @@ public class DistrictsController : ControllerBase
         _context.Districts.Add(district);
         await _context.SaveChangesAsync();
 
-        return CreatedAtAction(nameof(GetDistrict), new { id = district.Id }, district);
+        var createdDistrict = await _context.Districts
+            .Include(d => d.Deputy)
+            .FirstOrDefaultAsync(d => d.Id == district.Id);
+
+        var dtoResponse = new DistrictDto
+        {
+            Id = createdDistrict!.Id,
+            Name = createdDistrict.Name,
+            Description = createdDistrict.Description,
+            DeputyId = createdDistrict.DeputyId,
+            DeputyFullName = createdDistrict.Deputy?.FullName,
+            BoundaryGeoJson = _geoJsonWriter.Write(createdDistrict.Boundary)
+        };
+
+        return CreatedAtAction(nameof(GetDistrict), new { id = district.Id }, dtoResponse);
     }
 
     [HttpPut("{id}")]

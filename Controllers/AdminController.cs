@@ -52,10 +52,11 @@ public class AdminController : ControllerBase
             await _userManager.DeleteAsync(user);
         }
 
-        return Ok();
+        return NoContent();
     }
 
     [HttpGet("categories")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetCategories()
     {
         return Ok(await _context.Categories.ToListAsync());

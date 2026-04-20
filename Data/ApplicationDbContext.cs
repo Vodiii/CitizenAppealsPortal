@@ -59,11 +59,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             .HasForeignKey(p => p.AppealId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // Связь District -> Deputy (один-к-одному)
+        // Связь District -> Deputies (один-ко-многим)
         builder.Entity<District>()
-            .HasOne(d => d.Deputy)
+            .HasMany(d => d.Deputies)
             .WithOne(u => u.AssignedDistrict)
-            .HasForeignKey<ApplicationUser>(u => u.AssignedDistrictId)
+            .HasForeignKey(u => u.AssignedDistrictId)
             .OnDelete(DeleteBehavior.SetNull);
 
         // Уникальный индекс для названия округа

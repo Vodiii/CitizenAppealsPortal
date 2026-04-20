@@ -336,7 +336,7 @@ function newAppealPage() {
         </div>
         <div class="form-group">
           <label>Категория</label>
-          <select name="categoryId" class="form-control" id="categorySelect" required></select>
+          <select name="categoryId" class="form-control" id="categoryId" required></select>
         </div>
         <div class="form-group">
           <label>Описание</label>
@@ -362,8 +362,10 @@ function newAppealPage() {
 
   // Загрузить категории
   api.getCategories().then(cats => {
-    const select = document.getElementById('categorySelect');
-    cats.forEach(c => { select.innerHTML += `<option value="${c.id}">${c.name}</option>`; });
+    const select = document.getElementById('categoryId');
+    if (select) {
+      select.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
   });
 
   // Мини-карта

@@ -98,10 +98,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         policy =>
         {
-            policy.WithOrigins("http://localhost:3000", "https://yourfrontend.com")
+            policy.AllowAnyOrigin()
                   .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials();
+                  .AllowAnyHeader();
         });
 });
 
@@ -149,12 +148,12 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    // Для Production тоже включим Swagger, чтобы вы могли тестировать
+    // Для Production тоже включим Swagger, чтобы  могли тестировать
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseStaticFiles();
 
 app.UseCors("AllowFrontend");
