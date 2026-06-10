@@ -22,6 +22,11 @@ public class AddResponseDto
     public string Content { get; set; } = string.Empty;
 }
 
+public class ReopenAppealDto
+{
+    public string Message { get; set; } = string.Empty;   // причина возобновления
+}
+
 public class AppealDto
 {
     public int Id { get; set; }
@@ -55,5 +60,6 @@ public class AppealResponseDto
     public string Content { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public bool IsSystem { get; set; }
+    public ResponseType ResponseType { get; set; }      // новый тип ответа
     public string AuthorFullName { get; set; } = string.Empty;
 }

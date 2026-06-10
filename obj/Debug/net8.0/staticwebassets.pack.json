@@ -17,6 +17,10 @@
       "PackagePath": "staticwebassets\\uploads\\84c2fcab-c7f4-4854-9b65-fc3c9e8b9fcf.png"
     },
     {
+      "Id": "C:\\Users\\kiril\\Xakaton\\CitizenAppealsPortal\\wwwroot\\uploads\\8d62ab2f-e4dd-4cb4-9f64-d666845c14db.png",
+      "PackagePath": "staticwebassets\\uploads\\8d62ab2f-e4dd-4cb4-9f64-d666845c14db.png"
+    },
+    {
       "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.CitizenAppealsPortal.Microsoft.AspNetCore.StaticWebAssets.props",
       "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
     },

@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "s6GduAAIuCwJnhlbIA7f6EN2AJSUV7yarfTzumUBKc0=",
+  "Hash": "wxna7SEBrOMXYC+y2Ghkkd02Q9pdxCAF0hVQlpinhIg=",
   "Source": "CitizenAppealsPortal",
   "BasePath": "_content/CitizenAppealsPortal",
   "Mode": "Default",
@@ -91,6 +91,25 @@
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
       "OriginalItemSpec": "wwwroot\\uploads\\84c2fcab-c7f4-4854-9b65-fc3c9e8b9fcf.png"
+    },
+    {
+      "Identity": "C:\\Users\\kiril\\Xakaton\\CitizenAppealsPortal\\wwwroot\\uploads\\8d62ab2f-e4dd-4cb4-9f64-d666845c14db.png",
+      "SourceId": "CitizenAppealsPortal",
+      "SourceType": "Discovered",
+      "ContentRoot": "C:\\Users\\kiril\\Xakaton\\CitizenAppealsPortal\\wwwroot\\",
+      "BasePath": "_content/CitizenAppealsPortal",
+      "RelativePath": "uploads/8d62ab2f-e4dd-4cb4-9f64-d666845c14db.png",
+      "AssetKind": "All",
+      "AssetMode": "All",
+      "AssetRole": "Primary",
+      "AssetMergeBehavior": "PreferTarget",
+      "AssetMergeSource": "",
+      "RelatedAsset": "",
+      "AssetTraitName": "",
+      "AssetTraitValue": "",
+      "CopyToOutputDirectory": "Never",
+      "CopyToPublishDirectory": "PreserveNewest",
+      "OriginalItemSpec": "wwwroot\\uploads\\8d62ab2f-e4dd-4cb4-9f64-d666845c14db.png"
     }
   ]
 }
