@@ -51,6 +51,7 @@ public class AppealsController : ControllerBase
             .Include(a => a.District)
             .Include(a => a.Citizen)
             .Include(a => a.Photos)
+            .Include(a => a.Votes)
             .AsQueryable();
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -78,8 +79,12 @@ public class AppealsController : ControllerBase
             query = query.Where(a => a.CreatedAt <= toDate);
 
         var total = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(a => a.CreatedAt)
+
+        var orderedQuery = roles.Contains("Deputy")
+            ? query.OrderByDescending(a => a.Score).ThenByDescending(a => a.CreatedAt)
+            : query.OrderByDescending(a => a.CreatedAt);
+
+        var items = await orderedQuery
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(a => new AppealDto
@@ -98,6 +103,9 @@ public class AppealsController : ControllerBase
                 CategoryName = a.Category.Name,
                 DistrictId = a.DistrictId,
                 DistrictName = a.District.Name,
+                Score = a.Score,
+                UpVotes = a.Votes.Count(v => v.VoteType == 1),
+                DownVotes = a.Votes.Count(v => v.VoteType == -1),
                 Photos = a.Photos.Select(p => new PhotoDto
                 {
                     Id = p.Id,
@@ -119,6 +127,7 @@ public class AppealsController : ControllerBase
             .Include(a => a.Citizen)
             .Include(a => a.Photos)
             .Include(a => a.Responses).ThenInclude(r => r.Author)
+            .Include(a => a.Votes)
             .FirstOrDefaultAsync(a => a.Id == id);
 
         if (appeal == null) return NotFound();
@@ -148,6 +157,9 @@ public class AppealsController : ControllerBase
             CategoryName = appeal.Category.Name,
             DistrictId = appeal.DistrictId,
             DistrictName = appeal.District.Name,
+            Score = appeal.Score,
+            UpVotes = appeal.Votes.Count(v => v.VoteType == 1),
+            DownVotes = appeal.Votes.Count(v => v.VoteType == -1),
             Photos = appeal.Photos.Select(p => new PhotoDto
             {
                 Id = p.Id,
@@ -276,6 +288,16 @@ public class AppealsController : ControllerBase
         };
         _context.AppealResponses.Add(response);
 
+        // Уведомление автору обращения
+        _context.Notifications.Add(new Notification
+        {
+            UserId = appeal.CitizenId,
+            AppealId = appeal.Id,
+            Type = "StatusChange",
+            Message = $"Статус вашего обращения «{appeal.Title}» изменён на {dto.NewStatus}.",
+            CreatedAt = DateTime.UtcNow
+        });
+
         await _context.SaveChangesAsync();
         return Ok(new { Message = "Статус обновлён" });
     }
@@ -302,8 +324,19 @@ public class AppealsController : ControllerBase
             ResponseType = ResponseType.Normal
         };
         _context.AppealResponses.Add(response);
-        await _context.SaveChangesAsync();
 
+        // Уведомление автору обращения
+        var snippet = dto.Content.Length > 50 ? dto.Content[..50] + "..." : dto.Content;
+        _context.Notifications.Add(new Notification
+        {
+            UserId = appeal.CitizenId,
+            AppealId = appeal.Id,
+            Type = "NewResponse",
+            Message = $"Новый ответ по обращению «{appeal.Title}»: {snippet}",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
         return Ok(new { Message = "Ответ добавлен" });
     }
 
@@ -333,6 +366,23 @@ public class AppealsController : ControllerBase
             IsSystem = false
         };
         _context.AppealResponses.Add(response);
+
+        // Уведомление всем активным депутатам этого округа
+        var districtDeputies = await _userManager.Users
+            .Where(u => u.AssignedDistrictId == appeal.DistrictId
+                        && _context.DeputyTerms.Any(t => t.DeputyId == u.Id && t.IsActive))
+            .ToListAsync();
+        foreach (var dep in districtDeputies)
+        {
+            _context.Notifications.Add(new Notification
+            {
+                UserId = dep.Id,
+                AppealId = appeal.Id,
+                Type = "Reopen",
+                Message = $"Обращение «{appeal.Title}» возобновлено гражданином: {dto.Message}",
+                CreatedAt = DateTime.UtcNow
+            });
+        }
 
         await _context.SaveChangesAsync();
 
@@ -375,6 +425,64 @@ public class AppealsController : ControllerBase
         };
 
         return Ok(dtoResponse);
+    }
+
+    [HttpPost("{id}/vote")]
+    [Authorize]
+    public async Task<IActionResult> VoteAppeal(int id, [FromBody] VoteDto dto)
+    {
+        if (dto.VoteType != 1 && dto.VoteType != -1)
+            return BadRequest("VoteType должен быть 1 или -1.");
+
+        var appeal = await _context.Appeals
+            .Include(a => a.Votes)
+            .FirstOrDefaultAsync(a => a.Id == id);
+        if (appeal == null) return NotFound();
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var existingVote = await _context.AppealVotes
+            .FirstOrDefaultAsync(v => v.AppealId == id && v.UserId == userId);
+
+        if (existingVote != null)
+        {
+            if (existingVote.VoteType == dto.VoteType)
+            {
+                _context.AppealVotes.Remove(existingVote);
+                appeal.Score -= dto.VoteType;
+            }
+            else
+            {
+                appeal.Score -= existingVote.VoteType;
+                existingVote.VoteType = dto.VoteType;
+                appeal.Score += dto.VoteType;
+            }
+        }
+        else
+        {
+            var vote = new AppealVote
+            {
+                AppealId = id,
+                UserId = userId,
+                VoteType = dto.VoteType
+            };
+            _context.AppealVotes.Add(vote);
+            appeal.Score += dto.VoteType;
+        }
+
+        // Уведомление автору обращения
+        _context.Notifications.Add(new Notification
+        {
+            UserId = appeal.CitizenId,
+            AppealId = appeal.Id,
+            Type = "NewVote",
+            Message = $"Ваше обращение «{appeal.Title}» получило голос ({dto.VoteType}). Текущий рейтинг: {appeal.Score}",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+        return Ok(new { Score = appeal.Score });
     }
 
     [HttpDelete("{id}")]

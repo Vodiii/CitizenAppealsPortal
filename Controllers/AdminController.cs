@@ -49,7 +49,6 @@ public class AdminController : ControllerBase
             if (!await _userManager.IsInRoleAsync(user, "Deputy"))
                 await _userManager.AddToRoleAsync(user, "Deputy");
 
-            // Создаём новый срок
             var term = new DeputyTerm
             {
                 DeputyId = id,
@@ -117,18 +116,31 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("categories")]
-    public async Task<IActionResult> CreateCategory([FromBody] Category category)
+    public async Task<IActionResult> CreateCategory([FromBody] CreateCategoryDto dto)
     {
+        var category = new Category
+        {
+            Name = dto.Name,
+            Description = dto.Description,
+            IsActive = dto.IsActive,
+            Code = dto.Code
+        };
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
         return CreatedAtAction(nameof(GetCategories), new { id = category.Id }, category);
     }
 
     [HttpPut("categories/{id}")]
-    public async Task<IActionResult> UpdateCategory(int id, [FromBody] Category category)
+    public async Task<IActionResult> UpdateCategory(int id, [FromBody] CreateCategoryDto dto)
     {
-        if (id != category.Id) return BadRequest();
-        _context.Entry(category).State = EntityState.Modified;
+        var category = await _context.Categories.FindAsync(id);
+        if (category == null) return NotFound();
+
+        category.Name = dto.Name;
+        category.Description = dto.Description;
+        category.IsActive = dto.IsActive;
+        category.Code = dto.Code ?? category.Code; // сохраняем старый код, если не передан
+
         await _context.SaveChangesAsync();
         return NoContent();
     }

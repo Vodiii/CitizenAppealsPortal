@@ -3,6 +3,7 @@ using System;
 using CitizenAppealsPortal.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CitizenAppealsPortal.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260610223709_AddNotifications")]
+    partial class AddNotifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -252,40 +255,6 @@ namespace CitizenAppealsPortal.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Categories");
-                });
-
-            modelBuilder.Entity("CitizenAppealsPortal.Models.Comment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AppealId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("AuthorId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AppealId");
-
-                    b.HasIndex("AuthorId");
-
-                    b.ToTable("Comments");
                 });
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.DeputyTerm", b =>
@@ -629,25 +598,6 @@ namespace CitizenAppealsPortal.Migrations
                     b.Navigation("AssignedDistrict");
                 });
 
-            modelBuilder.Entity("CitizenAppealsPortal.Models.Comment", b =>
-                {
-                    b.HasOne("CitizenAppealsPortal.Models.Appeal", "Appeal")
-                        .WithMany("Comments")
-                        .HasForeignKey("AppealId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CitizenAppealsPortal.Models.ApplicationUser", "Author")
-                        .WithMany()
-                        .HasForeignKey("AuthorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Appeal");
-
-                    b.Navigation("Author");
-                });
-
             modelBuilder.Entity("CitizenAppealsPortal.Models.DeputyTerm", b =>
                 {
                     b.HasOne("CitizenAppealsPortal.Models.ApplicationUser", "Deputy")
@@ -750,8 +700,6 @@ namespace CitizenAppealsPortal.Migrations
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.Appeal", b =>
                 {
-                    b.Navigation("Comments");
-
                     b.Navigation("Photos");
 
                     b.Navigation("Responses");

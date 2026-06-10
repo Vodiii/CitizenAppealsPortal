@@ -43,6 +43,9 @@ public class AppealDto
     public string CategoryName { get; set; } = string.Empty;
     public int DistrictId { get; set; }
     public string DistrictName { get; set; } = string.Empty;
+    public int Score { get; set; }
+    public int UpVotes { get; set; }
+    public int DownVotes { get; set; }
     public List<PhotoDto> Photos { get; set; } = new();
     public List<AppealResponseDto> Responses { get; set; } = new();
 }
@@ -62,4 +65,8 @@ public class AppealResponseDto
     public bool IsSystem { get; set; }
     public ResponseType ResponseType { get; set; }      // новый тип ответа
     public string AuthorFullName { get; set; } = string.Empty;
+}
+public class VoteDto
+{
+    public int VoteType { get; set; }   // 1 = Up, -1 = Down
 }
