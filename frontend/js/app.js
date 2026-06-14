@@ -269,7 +269,7 @@ async function appealsListPage() {
         html += `
           <div class="appeal-card">
             <div class="appeal-header">
-              <span class="category">${app.category?.name || 'Без категории'}</span>
+              <span class="category">${app.categoryName || 'Без категории'}</span>
               <span class="status status-${app.status}">${getStatusText(app.status)}</span>
             </div>
             <h3>${app.title}</h3>
@@ -302,12 +302,12 @@ async function appealDetailPage(params) {
       <div class="card">
         <h2>${appeal.title}</h2>
         <div class="flex-between">
-          <span class="category">${appeal.category?.name}</span>
+          <span class="category">${appeal.categoryName}</span>
           <span class="status status-${appeal.status}">${getStatusText(appeal.status)}</span>
         </div>
         <p class="address"><i class="fas fa-map-pin"></i> ${appeal.address}</p>
         <p>${appeal.description}</p>
-        <p><strong>Округ:</strong> ${appeal.district?.name || 'Не определён'}</p>
+        <p><strong>Округ:</strong> ${appeal.districtName || 'Не определён'}</p>
         <p><strong>Создано:</strong> ${formatDate(appeal.createdAt)}</p>
         ${appeal.photos?.length ? `<div class="photos">${appeal.photos.map(p => `<img src="http://localhost:5000/${p.filePath}" style="max-width:200px; margin:5px;">`).join('')}</div>` : ''}
     `;
@@ -418,7 +418,7 @@ function newAppealPage() {
         </div>
         <div class="form-group">
           <label>Категория</label>
-          <select name="categoryId" class="form-control" id="categoryId" required></select>
+          <select name="categoryId" class="form-control" id="categorySelect" required></select>
         </div>
         <div class="form-group">
           <label>Описание</label>
@@ -444,7 +444,7 @@ function newAppealPage() {
 
   // Загрузить категории
   api.getCategories().then(cats => {
-    const select = document.getElementById('categoryId');
+    const select = document.getElementById('categorySelect');
     if (select) {
       select.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     }
@@ -474,7 +474,8 @@ function newAppealPage() {
     formData.append('description', form.description.value);
     formData.append('address', form.address.value);
     formData.append('locationGeoJson', form.locationGeoJson.value);
-    formData.append('categoryId', form.categoryId.value);
+    const categorySelect = document.getElementById('categorySelect');
+    formData.append('categoryId', categorySelect.value);
     const files = form.photos.files;
     for (let i = 0; i < files.length; i++) {
       formData.append('photos', files[i]);
