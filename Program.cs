@@ -1,4 +1,5 @@
 using CitizenAppealsPortal.Data;
+using CitizenAppealsPortal.Hubs;
 using CitizenAppealsPortal.Models;
 using CitizenAppealsPortal.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -52,11 +53,27 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };
+
+    // Настройка для SignalR: разрешить токен в строке запроса
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+            {
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        }
+    };
 });
 
 // Services
 builder.Services.AddScoped<IGeoService, GeoService>();
 builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddSignalR();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -93,14 +110,16 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// CORS: конкретный origin + AllowCredentials для SignalR
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend",
         policy =>
         {
-            policy.AllowAnyOrigin()
+            policy.WithOrigins("http://127.0.0.1:5500", "http://localhost:5500")
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();
         });
 });
 
@@ -148,19 +167,21 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    // Для Production тоже включим Swagger, чтобы  могли тестировать
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-//app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 app.UseStaticFiles();
+
+app.UseRouting();   // явно включаем маршрутизацию (опционально, но рекомендуется)
 
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapHub<NotificationHub>("/hubs/notifications");  // маппинг SignalR хаба
 app.MapControllers();
 
 app.Run();

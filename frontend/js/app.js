@@ -7,9 +7,78 @@ import { formatDate, getStatusText, showToast, openModal, closeModal, renderPagi
 // Глобальные переменные
 let currentMap = null;
 let mapLayers = {};
+let signalRConnection = null;
+let notificationBadge = null;
 
 // Инициализация аутентификации
 auth.init();
+
+// SignalR подключение
+async function startSignalRConnection() {
+    if (!auth.isAuthenticated()) return;
+    if (signalRConnection && signalRConnection.state === 'Connected') return;
+
+    signalRConnection = new signalR.HubConnectionBuilder()
+        .withUrl("http://localhost:5000/hubs/notifications", {
+            accessTokenFactory: () => auth.token
+        })
+        .withAutomaticReconnect()
+        .build();
+
+    signalRConnection.on("ReceiveNotification", (notification) => {
+        console.log("Новое уведомление:", notification);
+        showToast(notification.message, 'info');
+        updateNotificationBadge(1);
+    });
+
+    try {
+        await signalRConnection.start();
+        console.log("SignalR подключён");
+    } catch (err) {
+        console.error("Ошибка подключения SignalR:", err);
+    }
+}
+
+function stopSignalRConnection() {
+    if (signalRConnection) {
+        signalRConnection.stop();
+        signalRConnection = null;
+    }
+}
+
+// Счётчик непрочитанных уведомлений
+function createNotificationBadge() {
+    const navAuth = document.getElementById('navAuth');
+    if (!navAuth) return;
+    notificationBadge = document.createElement('span');
+    notificationBadge.id = 'notificationBadge';
+    notificationBadge.className = 'badge';
+    notificationBadge.style.display = 'none';
+    navAuth.appendChild(notificationBadge);
+}
+
+function updateNotificationBadge(increment = 0) {
+    if (!notificationBadge) return;
+    let current = parseInt(notificationBadge.textContent) || 0;
+    current += increment;
+    notificationBadge.textContent = current;
+    notificationBadge.style.display = current > 0 ? 'inline-block' : 'none';
+}
+
+function resetNotificationBadge() {
+    if (notificationBadge) {
+        notificationBadge.textContent = '';
+        notificationBadge.style.display = 'none';
+    }
+}
+
+// Инициализация баджа при загрузке
+document.addEventListener('DOMContentLoaded', () => {
+    createNotificationBadge();
+    if (auth.isAuthenticated()) {
+        startSignalRConnection();
+    }
+});
 
 // --- Функция обновления навигации (вызывается роутером) ---
 window.updateNavigation = function() {
@@ -46,9 +115,21 @@ window.updateNavigation = function() {
     authHtml += '<button class="btn btn-primary" id="registerBtn">Регистрация</button>';
   }
   navAuth.innerHTML = authHtml;
+  // Пересоздаём бадж после обновления навигации
+  createNotificationBadge();
+  if (isAuth) {
+    startSignalRConnection();
+  } else {
+    stopSignalRConnection();
+    resetNotificationBadge();
+  }
 
   if (isAuth) {
-    document.getElementById('logoutBtn')?.addEventListener('click', () => auth.logout());
+    document.getElementById('logoutBtn')?.addEventListener('click', () => {
+        stopSignalRConnection();
+        resetNotificationBadge();
+        auth.logout();
+    });
   } else {
     document.getElementById('loginBtn')?.addEventListener('click', () => window.location.hash = '#/login');
     document.getElementById('registerBtn')?.addEventListener('click', () => window.location.hash = '#/register');
@@ -116,6 +197,7 @@ function loginPage() {
     try {
       await auth.login(email, password);
       showToast('Вход выполнен', 'success');
+      startSignalRConnection();
       window.location.hash = '#/';
     } catch (err) {
       showToast(err.message, 'danger');
@@ -684,3 +766,19 @@ function notFoundPage() {
 
 // Запуск роутера
 router.handleRoute();
+
+// Подключение SignalR после инициализации аутентификации
+(function initSignalR() {
+    if (!auth.isAuthenticated()) {
+        // Если не авторизован, ждём изменения статуса (после логина)
+        const observer = new MutationObserver(() => {
+            if (auth.isAuthenticated()) {
+                observer.disconnect();
+                startSignalRConnection();
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    } else {
+        startSignalRConnection();
+    }
+})();

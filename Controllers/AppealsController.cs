@@ -1,10 +1,12 @@
 using CitizenAppealsPortal.Data;
+using CitizenAppealsPortal.Hubs;
 using CitizenAppealsPortal.Models;
 using CitizenAppealsPortal.Models.DTOs;
 using CitizenAppealsPortal.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
@@ -22,18 +24,21 @@ public class AppealsController : ControllerBase
     private readonly IGeoService _geoService;
     private readonly IFileService _fileService;
     private readonly GeoJsonWriter _geoJsonWriter;
+    private readonly IHubContext<NotificationHub> _hubContext;
 
     public AppealsController(
         ApplicationDbContext context,
         UserManager<ApplicationUser> userManager,
         IGeoService geoService,
-        IFileService fileService)
+        IFileService fileService,
+        IHubContext<NotificationHub> hubContext)
     {
         _context = context;
         _userManager = userManager;
         _geoService = geoService;
         _fileService = fileService;
         _geoJsonWriter = new GeoJsonWriter();
+        _hubContext = hubContext;
     }
 
     [HttpGet]
@@ -288,17 +293,29 @@ public class AppealsController : ControllerBase
         };
         _context.AppealResponses.Add(response);
 
-        // Уведомление автору обращения
-        _context.Notifications.Add(new Notification
+        var notification = new Notification
         {
             UserId = appeal.CitizenId,
             AppealId = appeal.Id,
             Type = "StatusChange",
             Message = $"Статус вашего обращения «{appeal.Title}» изменён на {dto.NewStatus}.",
             CreatedAt = DateTime.UtcNow
-        });
+        };
+        _context.Notifications.Add(notification);
 
         await _context.SaveChangesAsync();
+
+        // SignalR уведомление автору
+        await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
+        {
+            id = notification.Id,
+            type = notification.Type,
+            message = notification.Message,
+            appealId = notification.AppealId,
+            createdAt = notification.CreatedAt,
+            isRead = false
+        });
+
         return Ok(new { Message = "Статус обновлён" });
     }
 
@@ -325,18 +342,29 @@ public class AppealsController : ControllerBase
         };
         _context.AppealResponses.Add(response);
 
-        // Уведомление автору обращения
         var snippet = dto.Content.Length > 50 ? dto.Content[..50] + "..." : dto.Content;
-        _context.Notifications.Add(new Notification
+        var notification = new Notification
         {
             UserId = appeal.CitizenId,
             AppealId = appeal.Id,
             Type = "NewResponse",
             Message = $"Новый ответ по обращению «{appeal.Title}»: {snippet}",
             CreatedAt = DateTime.UtcNow
-        });
+        };
+        _context.Notifications.Add(notification);
 
         await _context.SaveChangesAsync();
+
+        await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
+        {
+            id = notification.Id,
+            type = notification.Type,
+            message = notification.Message,
+            appealId = notification.AppealId,
+            createdAt = notification.CreatedAt,
+            isRead = false
+        });
+
         return Ok(new { Message = "Ответ добавлен" });
     }
 
@@ -372,19 +400,30 @@ public class AppealsController : ControllerBase
             .Where(u => u.AssignedDistrictId == appeal.DistrictId
                         && _context.DeputyTerms.Any(t => t.DeputyId == u.Id && t.IsActive))
             .ToListAsync();
+
         foreach (var dep in districtDeputies)
         {
-            _context.Notifications.Add(new Notification
+            var notif = new Notification
             {
                 UserId = dep.Id,
                 AppealId = appeal.Id,
                 Type = "Reopen",
                 Message = $"Обращение «{appeal.Title}» возобновлено гражданином: {dto.Message}",
                 CreatedAt = DateTime.UtcNow
+            };
+            _context.Notifications.Add(notif);
+            await _context.SaveChangesAsync();
+
+            await _hubContext.Clients.User(dep.Id).SendAsync("ReceiveNotification", new
+            {
+                id = notif.Id,
+                type = notif.Type,
+                message = notif.Message,
+                appealId = notif.AppealId,
+                createdAt = notif.CreatedAt,
+                isRead = false
             });
         }
-
-        await _context.SaveChangesAsync();
 
         var createdAppeal = await _context.Appeals
             .Include(a => a.Category).Include(a => a.District).Include(a => a.Citizen)
@@ -471,17 +510,28 @@ public class AppealsController : ControllerBase
             appeal.Score += dto.VoteType;
         }
 
-        // Уведомление автору обращения
-        _context.Notifications.Add(new Notification
+        var notification = new Notification
         {
             UserId = appeal.CitizenId,
             AppealId = appeal.Id,
             Type = "NewVote",
             Message = $"Ваше обращение «{appeal.Title}» получило голос ({dto.VoteType}). Текущий рейтинг: {appeal.Score}",
             CreatedAt = DateTime.UtcNow
-        });
+        };
+        _context.Notifications.Add(notification);
 
         await _context.SaveChangesAsync();
+
+        await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
+        {
+            id = notification.Id,
+            type = notification.Type,
+            message = notification.Message,
+            appealId = notification.AppealId,
+            createdAt = notification.CreatedAt,
+            isRead = false
+        });
+
         return Ok(new { Score = appeal.Score });
     }
 
