@@ -104,5 +104,20 @@ export const api = {
   getAdminStats: (params) => {
     const query = new URLSearchParams(params).toString();
     return apiRequest(`/statistics/admin${query ? '?'+query : ''}`);
-  }
+  },
+
+  //Notification
+  getNotifications: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(`/notifications${query ? '?'+query : ''}`);
+  },
+  markNotificationRead: (id) => apiRequest(`/notifications/${id}/read`, { method: 'PUT' }),
+  markAllNotificationsRead: () => apiRequest('/notifications/read-all', { method: 'PUT' }),
+
+
+  //Vote
+  voteAppeal: (id, voteType) => apiRequest(`/Appeals/${id}/vote`, {
+  method: 'POST',
+  body: JSON.stringify({ voteType })  
+}),
 };

@@ -46,6 +46,7 @@ public class AppealDto
     public int Score { get; set; }
     public int UpVotes { get; set; }
     public int DownVotes { get; set; }
+    public int UserVote { get; set; }   // 0, 1, -1
     public List<PhotoDto> Photos { get; set; } = new();
     public List<AppealResponseDto> Responses { get; set; } = new();
 }

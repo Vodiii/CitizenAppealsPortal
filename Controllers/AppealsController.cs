@@ -85,6 +85,7 @@ public class AppealsController : ControllerBase
 
         var total = await query.CountAsync();
 
+        // Сортировка: депутаты видят по убыванию рейтинга, остальные – по дате
         var orderedQuery = roles.Contains("Deputy")
             ? query.OrderByDescending(a => a.Score).ThenByDescending(a => a.CreatedAt)
             : query.OrderByDescending(a => a.CreatedAt);
@@ -111,6 +112,7 @@ public class AppealsController : ControllerBase
                 Score = a.Score,
                 UpVotes = a.Votes.Count(v => v.VoteType == 1),
                 DownVotes = a.Votes.Count(v => v.VoteType == -1),
+                UserVote = a.Votes.Where(v => v.UserId == userId).Select(v => v.VoteType).FirstOrDefault(),
                 Photos = a.Photos.Select(p => new PhotoDto
                 {
                     Id = p.Id,
@@ -165,6 +167,7 @@ public class AppealsController : ControllerBase
             Score = appeal.Score,
             UpVotes = appeal.Votes.Count(v => v.VoteType == 1),
             DownVotes = appeal.Votes.Count(v => v.VoteType == -1),
+            UserVote = appeal.Votes.Where(v => v.UserId == userId).Select(v => v.VoteType).FirstOrDefault(),
             Photos = appeal.Photos.Select(p => new PhotoDto
             {
                 Id = p.Id,
@@ -466,6 +469,7 @@ public class AppealsController : ControllerBase
         return Ok(dtoResponse);
     }
 
+    
     [HttpPost("{id}/vote")]
     [Authorize]
     public async Task<IActionResult> VoteAppeal(int id, [FromBody] VoteDto dto)
@@ -481,25 +485,30 @@ public class AppealsController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-        var existingVote = await _context.AppealVotes
-            .FirstOrDefaultAsync(v => v.AppealId == id && v.UserId == userId);
+        var existingVote = appeal.Votes.FirstOrDefault(v => v.UserId == userId);
+        int finalVoteType = 0;
 
         if (existingVote != null)
         {
-            if (existingVote.VoteType == dto.VoteType)
-            {
+           if (existingVote.VoteType == dto.VoteType)
+           {
+               // отмена голоса
                 _context.AppealVotes.Remove(existingVote);
                 appeal.Score -= dto.VoteType;
+                finalVoteType = 0;
             }
-            else
+           else
             {
+                // замена голоса
                 appeal.Score -= existingVote.VoteType;
                 existingVote.VoteType = dto.VoteType;
                 appeal.Score += dto.VoteType;
+                finalVoteType = dto.VoteType;
             }
         }
         else
         {
+            // новый голос
             var vote = new AppealVote
             {
                 AppealId = id,
@@ -507,32 +516,55 @@ public class AppealsController : ControllerBase
                 VoteType = dto.VoteType
             };
             _context.AppealVotes.Add(vote);
-            appeal.Score += dto.VoteType;
+           appeal.Score += dto.VoteType;
+            finalVoteType = dto.VoteType;
         }
 
-        var notification = new Notification
+        // Уведомление создаём только если голос не отменён (finalVoteType != 0)
+        if (finalVoteType != 0)
         {
-            UserId = appeal.CitizenId,
-            AppealId = appeal.Id,
-            Type = "NewVote",
-            Message = $"Ваше обращение «{appeal.Title}» получило голос ({dto.VoteType}). Текущий рейтинг: {appeal.Score}",
-            CreatedAt = DateTime.UtcNow
-        };
-        _context.Notifications.Add(notification);
+            var notification = new Notification
+            {
+                UserId = appeal.CitizenId,
+                AppealId = appeal.Id,
+                Type = "NewVote",
+                Message = finalVoteType == 1
+                    ? $"Ваше обращение «{appeal.Title}» получило голос 👍. Текущий рейтинг: {appeal.Score}"
+                    : $"Ваше обращение «{appeal.Title}» получило голос 👎. Текущий рейтинг: {appeal.Score}",
+                CreatedAt = DateTime.UtcNow
+            };
+           _context.Notifications.Add(notification);
 
-        await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(); // сохраняем уведомление
 
-        await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
+            // SignalR уведомление автору
+            await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
+            {
+                id = notification.Id,
+                type = notification.Type,
+                message = notification.Message,
+                appealId = notification.AppealId,
+                createdAt = notification.CreatedAt,
+                isRead = false
+            });
+        }
+        else
         {
-            id = notification.Id,
-            type = notification.Type,
-            message = notification.Message,
-            appealId = notification.AppealId,
-            createdAt = notification.CreatedAt,
-            isRead = false
+            // Если голос отменён, просто сохраняем изменения
+            await _context.SaveChangesAsync();
+        }
+
+        // Актуальные счётчики после всех изменений
+        int upVotes = appeal.Votes.Count(v => v.VoteType == 1);
+        int downVotes = appeal.Votes.Count(v => v.VoteType == -1);
+
+        return Ok(new
+        {
+            score = appeal.Score,
+            upVotes = upVotes,
+            downVotes = downVotes,
+            userVote = finalVoteType
         });
-
-        return Ok(new { Score = appeal.Score });
     }
 
     [HttpDelete("{id}")]
