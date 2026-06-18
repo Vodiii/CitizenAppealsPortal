@@ -12,6 +12,7 @@ public class Appeal
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public AppealStatus Status { get; set; } = AppealStatus.New;
+    public int Score { get; set; } = 0;                     // новое поле
 
     public string CitizenId { get; set; } = string.Empty;
     public virtual ApplicationUser Citizen { get; set; } = null!;
@@ -24,6 +25,8 @@ public class Appeal
 
     public virtual ICollection<AppealResponse> Responses { get; set; } = new List<AppealResponse>();
     public virtual ICollection<Photo> Photos { get; set; } = new List<Photo>();
+    public virtual ICollection<AppealVote> Votes { get; set; } = new List<AppealVote>();  // новая коллекция
+    public virtual ICollection<Comment> Comments { get; set; } = new List<Comment>();
 }
 
 public enum AppealStatus

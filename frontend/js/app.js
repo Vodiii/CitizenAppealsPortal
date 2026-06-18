@@ -7,9 +7,196 @@ import { formatDate, getStatusText, showToast, openModal, closeModal, renderPagi
 // Глобальные переменные
 let currentMap = null;
 let mapLayers = {};
+let signalRConnection = null;
+let notificationBadge = null;
+let isConnecting = false;
+let notifications = [];
+let notificationDropdown = null;
 
 // Инициализация аутентификации
 auth.init();
+
+// SignalR подключение (безопасное)
+async function startSignalRConnection() {
+    if (typeof signalR === 'undefined') {
+        console.warn('SignalR не загружен – уведомления в реальном времени отключены');
+        return;
+    }
+    if (!auth.isAuthenticated()) return;
+    if (signalRConnection && signalRConnection.state === 'Connected') return;
+    if (isConnecting) return;
+    isConnecting = true;
+
+    signalRConnection = new signalR.HubConnectionBuilder()
+        .withUrl("http://localhost:5000/hubs/notifications", {
+            accessTokenFactory: () => auth.token
+        })
+        .withAutomaticReconnect()
+        .build();
+
+    signalRConnection.on("ReceiveNotification", (notification) => {
+        console.log("Новое уведомление:", notification);
+        // Добавляем в начало списка
+        notifications.unshift(notification);
+        updateNotificationBadge(1);
+        renderNotificationList();
+        // Показываем тост
+        showToast(notification.message, 'info');
+    });
+
+    try {
+        await signalRConnection.start();
+        console.log("SignalR подключён");
+    } catch (err) {
+        console.error("Ошибка подключения SignalR:", err);
+    } finally {
+        isConnecting = false;
+    }
+}
+
+function stopSignalRConnection() {
+    if (signalRConnection) {
+        signalRConnection.stop();
+        signalRConnection = null;
+    }
+}
+
+// Счётчик непрочитанных уведомлений
+function createNotificationBadge() {
+    // Уже создаётся внутри updateNavigation
+}
+
+function updateNotificationBadge(increment = 0) {
+    const bell = document.getElementById('notificationBell');
+    if (!bell) return;
+    const badge = bell.querySelector('.badge');
+    if (!badge) return;
+    let current = parseInt(badge.textContent) || 0;
+    current += increment;
+    badge.textContent = current;
+    badge.style.display = current > 0 ? 'inline-block' : 'none';
+}
+
+function resetNotificationBadge() {
+    const bell = document.getElementById('notificationBell');
+    if (!bell) return;
+    const badge = bell.querySelector('.badge');
+    if (badge) {
+        badge.textContent = '';
+        badge.style.display = 'none';
+    }
+}
+
+// Загрузка уведомлений с сервера
+async function loadNotifications() {
+    try {
+        const data = await api.getNotifications({ pageSize: 50 });
+        notifications = data.items || [];
+        renderNotificationList();
+        updateNotificationBadgeFromData();
+    } catch (err) {
+        console.error('Ошибка загрузки уведомлений:', err);
+    }
+}
+
+function updateNotificationBadgeFromData() {
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+    const bell = document.getElementById('notificationBell');
+    if (!bell) return;
+    const badge = bell.querySelector('.badge');
+    if (!badge) return;
+    badge.textContent = unreadCount || '';
+    badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+}
+
+// Отображение списка уведомлений в выпадающем блоке
+function renderNotificationList() {
+    if (!notificationDropdown) {
+        notificationDropdown = document.getElementById('notificationDropdown');
+    }
+    if (!notificationDropdown) return;
+
+    let html = `<h3>Уведомления <button class="mark-all-read" id="markAllReadBtn">Отметить все прочитанными</button></h3>`;
+    if (notifications.length === 0) {
+        html += `<div class="notification-empty">Нет уведомлений</div>`;
+    } else {
+        notifications.forEach(n => {
+            const date = new Date(n.createdAt);
+            const time = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const dateStr = date.toLocaleDateString('ru-RU');
+            html += `
+                <div class="notification-item ${n.isRead ? '' : 'unread'}" data-id="${n.id}" data-appeal-id="${n.appealId || ''}">
+                    <div class="notif-message">${n.message}</div>
+                    <div class="notif-time">
+                        <span>${time}</span>
+                        <span class="notif-date">${dateStr}</span>
+                    </div>
+                </div>
+            `;
+        });
+    }
+    notificationDropdown.innerHTML = html;
+
+    // Обработчик "Отметить все прочитанными"
+    const markAllBtn = document.getElementById('markAllReadBtn');
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await api.markAllNotificationsRead();
+            notifications.forEach(n => n.isRead = true);
+            renderNotificationList();
+            updateNotificationBadgeFromData();
+        });
+    }
+
+    // Обработчики кликов по элементам списка
+    notificationDropdown.querySelectorAll('.notification-item').forEach(item => {
+        item.addEventListener('click', async () => {
+            const id = item.dataset.id;
+            const appealId = item.dataset.appealId;
+            // Отметить как прочитанное
+            if (!notifications.find(n => n.id == id)?.isRead) {
+                await api.markNotificationRead(id);
+                const notif = notifications.find(n => n.id == id);
+                if (notif) notif.isRead = true;
+                renderNotificationList();
+                updateNotificationBadgeFromData();
+            }
+            // Переход к обращению, если есть appealId
+            if (appealId) {
+                window.location.hash = `#/appeals/${appealId}`;
+                closeNotificationDropdown();
+            }
+        });
+    });
+}
+
+function closeNotificationDropdown() {
+    if (notificationDropdown) {
+        notificationDropdown.classList.remove('show');
+    }
+}
+
+function toggleNotificationDropdown() {
+    if (!notificationDropdown) {
+        notificationDropdown = document.getElementById('notificationDropdown');
+    }
+    if (!notificationDropdown) return;
+    if (notificationDropdown.classList.contains('show')) {
+        notificationDropdown.classList.remove('show');
+    } else {
+        notificationDropdown.classList.add('show');
+        loadNotifications(); // загружаем свежие данные
+    }
+}
+
+// Инициализация баджа при загрузке
+document.addEventListener('DOMContentLoaded', () => {
+    createNotificationBadge();
+    if (auth.isAuthenticated()) {
+        startSignalRConnection();
+    }
+});
 
 // --- Функция обновления навигации (вызывается роутером) ---
 window.updateNavigation = function() {
@@ -17,6 +204,7 @@ window.updateNavigation = function() {
   const navAuth = document.getElementById('navAuth');
   const isAuth = auth.isAuthenticated();
   const roles = auth.userRoles;
+  updateNotificationBadgeFromData();
 
   let menuHtml = '';
   if (isAuth) {
@@ -41,14 +229,43 @@ window.updateNavigation = function() {
   if (isAuth) {
     authHtml = `<span>${auth.getUserName()}</span>`;
     authHtml += '<button class="btn btn-outline" id="logoutBtn">Выйти</button>';
+    // Добавляем колокольчик
+    authHtml += '<button class="notification-bell" id="notificationBell"><i class="far fa-bell"></i><span class="badge" style="display:none"></span></button>';
   } else {
     authHtml = '<button class="btn btn-outline" id="loginBtn">Войти</button>';
     authHtml += '<button class="btn btn-primary" id="registerBtn">Регистрация</button>';
   }
   navAuth.innerHTML = authHtml;
 
+  // Обработчик колокольчика
+  const bell = document.getElementById('notificationBell');
+  if (bell) {
+    bell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleNotificationDropdown();
+    });
+  }
+
+  // Закрытие выпадающего списка при клике вне его
+  document.addEventListener('click', (e) => {
+    if (notificationDropdown && !notificationDropdown.contains(e.target) && e.target !== bell) {
+      notificationDropdown.classList.remove('show');
+    }
+  });
+
   if (isAuth) {
-    document.getElementById('logoutBtn')?.addEventListener('click', () => auth.logout());
+    startSignalRConnection();
+  } else {
+    stopSignalRConnection();
+    resetNotificationBadge();
+  }
+
+  if (isAuth) {
+    document.getElementById('logoutBtn')?.addEventListener('click', () => {
+        stopSignalRConnection();
+        resetNotificationBadge();
+        auth.logout();
+    });
   } else {
     document.getElementById('loginBtn')?.addEventListener('click', () => window.location.hash = '#/login');
     document.getElementById('registerBtn')?.addEventListener('click', () => window.location.hash = '#/register');
@@ -60,6 +277,11 @@ window.updateNavigation = function() {
     burger.addEventListener('click', () => {
       navMenu.classList.toggle('active');
     });
+  }
+
+  // При первой загрузке подгружаем уведомления для бейджа
+  if (isAuth && notifications.length === 0) {
+    loadNotifications();
   }
 };
 
@@ -116,6 +338,7 @@ function loginPage() {
     try {
       await auth.login(email, password);
       showToast('Вход выполнен', 'success');
+      startSignalRConnection();
       window.location.hash = '#/';
     } catch (err) {
       showToast(err.message, 'danger');
@@ -187,7 +410,7 @@ async function appealsListPage() {
         html += `
           <div class="appeal-card">
             <div class="appeal-header">
-              <span class="category">${app.category?.name || 'Без категории'}</span>
+              <span class="category">${app.categoryName || 'Без категории'}</span>
               <span class="status status-${app.status}">${getStatusText(app.status)}</span>
             </div>
             <h3>${app.title}</h3>
@@ -207,7 +430,6 @@ async function appealsListPage() {
     content.innerHTML = `<div class="card">Ошибка загрузки: ${err.message}</div>`;
   }
 }
-
 async function appealDetailPage(params) {
   const id = params.id;
   const content = document.getElementById('mainContent');
@@ -220,19 +442,29 @@ async function appealDetailPage(params) {
       <div class="card">
         <h2>${appeal.title}</h2>
         <div class="flex-between">
-          <span class="category">${appeal.category?.name}</span>
+          <span class="category">${appeal.categoryName || 'Без категории'}</span>
           <span class="status status-${appeal.status}">${getStatusText(appeal.status)}</span>
         </div>
         <p class="address"><i class="fas fa-map-pin"></i> ${appeal.address}</p>
         <p>${appeal.description}</p>
-        <p><strong>Округ:</strong> ${appeal.district?.name || 'Не определён'}</p>
+        <p><strong>Округ:</strong> ${appeal.districtName || 'Не определён'}</p>
         <p><strong>Создано:</strong> ${formatDate(appeal.createdAt)}</p>
         ${appeal.photos?.length ? `<div class="photos">${appeal.photos.map(p => `<img src="http://localhost:5000/${p.filePath}" style="max-width:200px; margin:5px;">`).join('')}</div>` : ''}
+        <div class="vote-block mt-20">
+          <div class="vote-buttons">
+            <button class="btn btn-sm btn-outline ${appeal.userVote === 1 ? 'btn-success' : ''}" id="upvoteBtn" ${!auth.isAuthenticated() ? 'disabled' : ''}>
+              <i class="fas fa-thumbs-up"></i>
+            </button>
+            <button class="btn btn-sm btn-outline ${appeal.userVote === -1 ? 'btn-danger' : ''}" id="downvoteBtn" ${!auth.isAuthenticated() ? 'disabled' : ''}>
+              <i class="fas fa-thumbs-down"></i>
+            </button>
+          </div>
+          <span class="vote-details" id="voteDetails">👍 ${appeal.upVotes} / 👎 ${appeal.downVotes}</span>
+          <small class="text-muted">Рейтинг обращения</small>
+        </div>
     `;
 
-    // Форма для депутата/админа (если округ совпадает или админ)
     if (isDeputyOrAdmin) {
-      // Для депутата проверяем, что это его округ (упрощённо – админ видит всегда)
       const canEdit = auth.hasRole('Admin') || (auth.hasRole('Deputy') && appeal.districtId === await getDeputyDistrictId());
       if (canEdit) {
         html += `
@@ -272,7 +504,41 @@ async function appealDetailPage(params) {
     html += `</div>`;
     content.innerHTML = html;
 
-    // Обработчики
+    // Обработчики голосования
+    const upvoteBtn = document.getElementById('upvoteBtn');
+    const downvoteBtn = document.getElementById('downvoteBtn');
+    const detailsEl = document.getElementById('voteDetails');
+
+    if (appeal.userVote === 1) {
+      upvoteBtn?.classList.add('btn-success');
+    } else if (appeal.userVote === -1) {
+      downvoteBtn?.classList.add('btn-danger');
+    }
+
+    async function handleVote(voteType) {
+      if (!auth.isAuthenticated()) {
+        showToast('Авторизуйтесь для голосования', 'warning');
+        return;
+      }
+      try {
+        const result = await api.voteAppeal(id, voteType);
+        detailsEl.innerHTML = `👍 ${result.upVotes} / 👎 ${result.downVotes}`;
+
+        upvoteBtn.classList.remove('btn-success');
+        downvoteBtn.classList.remove('btn-danger');
+        if (result.userVote === 1) {
+          upvoteBtn.classList.add('btn-success');
+        } else if (result.userVote === -1) {
+          downvoteBtn.classList.add('btn-danger');
+        }
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    upvoteBtn?.addEventListener('click', () => handleVote(1));
+    downvoteBtn?.addEventListener('click', () => handleVote(-1));
+
     if (isDeputyOrAdmin) {
       document.getElementById('updateStatusBtn')?.addEventListener('click', async () => {
         const newStatus = parseInt(document.getElementById('statusSelect').value);
@@ -314,13 +580,11 @@ async function appealDetailPage(params) {
   }
 }
 
-// Вспомогательная функция получения ID округа депутата (можно улучшить)
 async function getDeputyDistrictId() {
   if (!auth.hasRole('Deputy')) return null;
   try {
     const appeals = await api.getAppeals({ pageSize: 1 });
     if (appeals.items.length > 0) return appeals.items[0].districtId;
-    // Альтернативно можно запросить профиль (если будет эндпоинт)
     return null;
   } catch { return null; }
 }
@@ -360,13 +624,13 @@ function newAppealPage() {
     </div>
   `;
 
-  // Загрузить категории
   api.getCategories().then(cats => {
     const select = document.getElementById('categorySelect');
-    cats.forEach(c => { select.innerHTML += `<option value="${c.id}">${c.name}</option>`; });
+    if (select) {
+      select.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
   });
 
-  // Мини-карта
   const miniMap = L.map('miniMap').setView([55.7558, 37.6173], 10);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(miniMap);
   let marker;
@@ -390,7 +654,8 @@ function newAppealPage() {
     formData.append('description', form.description.value);
     formData.append('address', form.address.value);
     formData.append('locationGeoJson', form.locationGeoJson.value);
-    formData.append('categoryId', form.categoryId.value);
+    const categorySelect = document.getElementById('categorySelect');
+    formData.append('categoryId', categorySelect.value);
     const files = form.photos.files;
     for (let i = 0; i < files.length; i++) {
       formData.append('photos', files[i]);
@@ -439,7 +704,6 @@ async function adminPage() {
     `;
     content.innerHTML = html;
 
-    // Утверждение/отклонение депутатов
     document.querySelectorAll('.approve-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
@@ -463,7 +727,6 @@ async function adminPage() {
       });
     });
 
-    // Добавление категории
     document.getElementById('addCategoryBtn').addEventListener('click', () => {
       openModal(`
         <h3>Новая категория</h3>
@@ -487,7 +750,6 @@ async function adminPage() {
       });
     });
 
-    // Удаление категорий
     document.querySelectorAll('.del-cat').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Удалить категорию?')) return;
@@ -499,7 +761,6 @@ async function adminPage() {
       });
     });
 
-    // Добавление округа (упрощённо, без рисования)
     document.getElementById('addDistrictBtn').addEventListener('click', () => {
       openModal(`
         <h3>Новый округ</h3>
@@ -523,7 +784,6 @@ async function adminPage() {
       });
     });
 
-    // Удаление округов
     document.querySelectorAll('.del-dist').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Удалить округ?')) return;
@@ -600,7 +860,6 @@ function mapPage() {
     </div>
   `;
 
-  // Загрузить категории и округа в фильтры
   api.getCategories().then(cats => {
     const sel = document.getElementById('filterCategory');
     cats.forEach(c => { sel.innerHTML += `<option value="${c.id}">${c.name}</option>`; });
@@ -622,15 +881,12 @@ function mapPage() {
 }
 
 function initMap() {
-  if (currentMap) {
-    currentMap.remove();
-  }
+  if (currentMap) currentMap.remove();
   currentMap = L.map('map').setView([55.7558, 37.6173], 10);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap'
   }).addTo(currentMap);
 
-  // Границы округов
   api.getDistrictsGeoJson().then(data => {
     L.geoJSON(data, {
       style: { color: '#1e3a8a', weight: 2, fillOpacity: 0.1 }
@@ -682,3 +938,23 @@ function notFoundPage() {
 
 // Запуск роутера
 router.handleRoute();
+
+// Безопасная инициализация SignalR
+(function initSignalR() {
+    if (typeof signalR === 'undefined') {
+        console.warn('SignalR не загружен – уведомления в реальном времени отключены');
+        return;
+    }
+    let observer = null;
+    if (!auth.isAuthenticated()) {
+        observer = new MutationObserver(() => {
+            if (auth.isAuthenticated()) {
+                observer.disconnect();
+                startSignalRConnection();
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    } else {
+        startSignalRConnection();
+    }
+})();

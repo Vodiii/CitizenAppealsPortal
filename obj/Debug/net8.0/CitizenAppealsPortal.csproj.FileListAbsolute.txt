@@ -121,3 +121,10 @@ C:\Users\kiril\Xakaton\CitizenAppealsPortal\obj\Debug\net8.0\refint\CitizenAppea
 C:\Users\kiril\Xakaton\CitizenAppealsPortal\obj\Debug\net8.0\CitizenAppealsPortal.pdb
 C:\Users\kiril\Xakaton\CitizenAppealsPortal\obj\Debug\net8.0\CitizenAppealsPortal.genruntimeconfig.cache
 C:\Users\kiril\Xakaton\CitizenAppealsPortal\obj\Debug\net8.0\ref\CitizenAppealsPortal.dll
+C:\Users\kiril\Xakaton\CitizenAppealsPortal\bin\Debug\net8.0\Microsoft.Extensions.DependencyInjection.Abstractions.dll
+C:\Users\kiril\Xakaton\CitizenAppealsPortal\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.Abstractions.dll
+C:\Users\kiril\Xakaton\CitizenAppealsPortal\bin\Debug\net8.0\Microsoft.Extensions.Hosting.Abstractions.dll
+C:\Users\kiril\Xakaton\CitizenAppealsPortal\bin\Debug\net8.0\Microsoft.Extensions.Logging.Abstractions.dll
+C:\Users\kiril\Xakaton\CitizenAppealsPortal\bin\Debug\net8.0\Microsoft.Extensions.ObjectPool.dll
+C:\Users\kiril\Xakaton\CitizenAppealsPortal\bin\Debug\net8.0\Microsoft.Extensions.Options.dll
+C:\Users\kiril\Xakaton\CitizenAppealsPortal\bin\Debug\net8.0\System.Net.WebSockets.WebSocketProtocol.dll

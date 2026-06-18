@@ -7,5 +7,7 @@ public class Category
     public string? Description { get; set; }
     public bool IsActive { get; set; } = true;
 
+    public string? Code { get; set; }
+
     public virtual ICollection<Appeal> Appeals { get; set; } = new List<Appeal>();
 }

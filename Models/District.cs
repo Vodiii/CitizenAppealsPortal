@@ -10,6 +10,6 @@ public class District
     public Polygon Boundary { get; set; } = null!;
     public string? DeputyId { get; set; }
     public virtual ApplicationUser? Deputy { get; set; }
-
+    public virtual ICollection<ApplicationUser> Deputies { get; set; } = new List<ApplicationUser>();
     public virtual ICollection<Appeal> Appeals { get; set; } = new List<Appeal>();
 }

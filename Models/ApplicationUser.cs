@@ -11,4 +11,5 @@ public class ApplicationUser : IdentityUser
     public virtual ICollection<Appeal> Appeals { get; set; } = new List<Appeal>();
     public virtual District? AssignedDistrict { get; set; }
     public int? AssignedDistrictId { get; set; }
+    public virtual ICollection<DeputyTerm> DeputyTerms { get; set; } = new List<DeputyTerm>();   // новая коллекция
 }

@@ -57,6 +57,9 @@ namespace CitizenAppealsPortal.Migrations
                         .IsRequired()
                         .HasColumnType("geometry");
 
+                    b.Property<int>("Score")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -103,6 +106,9 @@ namespace CitizenAppealsPortal.Migrations
                     b.Property<bool>("IsSystem")
                         .HasColumnType("boolean");
 
+                    b.Property<int>("ResponseType")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AppealId");
@@ -110,6 +116,37 @@ namespace CitizenAppealsPortal.Migrations
                     b.HasIndex("AuthorId");
 
                     b.ToTable("AppealResponses");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.AppealVote", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AppealId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("VoteType")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("AppealId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("AppealVotes");
                 });
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.ApplicationUser", b =>
@@ -179,8 +216,7 @@ namespace CitizenAppealsPortal.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AssignedDistrictId")
-                        .IsUnique();
+                    b.HasIndex("AssignedDistrictId");
 
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");
@@ -200,6 +236,9 @@ namespace CitizenAppealsPortal.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Code")
+                        .HasColumnType("text");
+
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
@@ -213,6 +252,68 @@ namespace CitizenAppealsPortal.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.Comment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AppealId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AuthorId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppealId");
+
+                    b.HasIndex("AuthorId");
+
+                    b.ToTable("Comments");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.DeputyTerm", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("DeputyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeputyId");
+
+                    b.ToTable("DeputyTerms");
                 });
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.District", b =>
@@ -243,10 +344,50 @@ namespace CitizenAppealsPortal.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Boundary"), "GIST");
 
+                    b.HasIndex("DeputyId");
+
                     b.HasIndex("Name")
                         .IsUnique();
 
                     b.ToTable("Districts");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AppealId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppealId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Notifications");
                 });
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.Photo", b =>
@@ -459,14 +600,90 @@ namespace CitizenAppealsPortal.Migrations
                     b.Navigation("Author");
                 });
 
+            modelBuilder.Entity("CitizenAppealsPortal.Models.AppealVote", b =>
+                {
+                    b.HasOne("CitizenAppealsPortal.Models.Appeal", "Appeal")
+                        .WithMany("Votes")
+                        .HasForeignKey("AppealId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CitizenAppealsPortal.Models.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Appeal");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("CitizenAppealsPortal.Models.ApplicationUser", b =>
                 {
                     b.HasOne("CitizenAppealsPortal.Models.District", "AssignedDistrict")
-                        .WithOne("Deputy")
-                        .HasForeignKey("CitizenAppealsPortal.Models.ApplicationUser", "AssignedDistrictId")
+                        .WithMany("Deputies")
+                        .HasForeignKey("AssignedDistrictId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("AssignedDistrict");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.Comment", b =>
+                {
+                    b.HasOne("CitizenAppealsPortal.Models.Appeal", "Appeal")
+                        .WithMany("Comments")
+                        .HasForeignKey("AppealId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CitizenAppealsPortal.Models.ApplicationUser", "Author")
+                        .WithMany()
+                        .HasForeignKey("AuthorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Appeal");
+
+                    b.Navigation("Author");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.DeputyTerm", b =>
+                {
+                    b.HasOne("CitizenAppealsPortal.Models.ApplicationUser", "Deputy")
+                        .WithMany("DeputyTerms")
+                        .HasForeignKey("DeputyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Deputy");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.District", b =>
+                {
+                    b.HasOne("CitizenAppealsPortal.Models.ApplicationUser", "Deputy")
+                        .WithMany()
+                        .HasForeignKey("DeputyId");
+
+                    b.Navigation("Deputy");
+                });
+
+            modelBuilder.Entity("CitizenAppealsPortal.Models.Notification", b =>
+                {
+                    b.HasOne("CitizenAppealsPortal.Models.Appeal", "Appeal")
+                        .WithMany()
+                        .HasForeignKey("AppealId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("CitizenAppealsPortal.Models.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Appeal");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.Photo", b =>
@@ -533,14 +750,20 @@ namespace CitizenAppealsPortal.Migrations
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.Appeal", b =>
                 {
+                    b.Navigation("Comments");
+
                     b.Navigation("Photos");
 
                     b.Navigation("Responses");
+
+                    b.Navigation("Votes");
                 });
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.ApplicationUser", b =>
                 {
                     b.Navigation("Appeals");
+
+                    b.Navigation("DeputyTerms");
                 });
 
             modelBuilder.Entity("CitizenAppealsPortal.Models.Category", b =>
@@ -552,7 +775,7 @@ namespace CitizenAppealsPortal.Migrations
                 {
                     b.Navigation("Appeals");
 
-                    b.Navigation("Deputy");
+                    b.Navigation("Deputies");
                 });
 #pragma warning restore 612, 618
         }

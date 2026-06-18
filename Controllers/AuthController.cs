@@ -1,7 +1,9 @@
+using CitizenAppealsPortal.Data;
 using CitizenAppealsPortal.Models;
 using CitizenAppealsPortal.Models.DTOs;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -16,12 +18,18 @@ public class AuthController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
     private readonly IConfiguration _configuration;
+    private readonly ApplicationDbContext _context;
 
-    public AuthController(UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager, IConfiguration configuration)
+    public AuthController(
+        UserManager<ApplicationUser> userManager,
+        RoleManager<IdentityRole> roleManager,
+        IConfiguration configuration,
+        ApplicationDbContext context)
     {
         _userManager = userManager;
         _roleManager = roleManager;
         _configuration = configuration;
+        _context = context;
     }
 
     [HttpPost("register")]
@@ -40,15 +48,12 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
             return BadRequest(result.Errors);
 
-        // Определяем роль
         string role = model.Role ?? "Citizen";
         if (role != "Citizen" && role != "Deputy")
             role = "Citizen";
 
-        // Добавляем роль
         await _userManager.AddToRoleAsync(user, role);
 
-        // Для депутата требуется подтверждение
         if (role == "Deputy")
         {
             user.IsApproved = false;
@@ -67,9 +72,28 @@ public class AuthController : ControllerBase
 
         var roles = await _userManager.GetRolesAsync(user);
 
-        // Депутат должен быть подтверждён
-        if (roles.Contains("Deputy") && !user.IsApproved)
-            return Unauthorized("Ваша учётная запись депутата ещё не подтверждена администратором.");
+        var now = DateTime.UtcNow;
+        var hasActiveTerm = await _context.DeputyTerms
+            .AnyAsync(t => t.DeputyId == user.Id && t.IsActive && t.StartDate <= now && t.EndDate >= now);
+
+        if (hasActiveTerm)
+        {
+            // Есть активный срок – должен быть Deputy, не должно быть Citizen
+            if (!roles.Contains("Deputy"))
+                await _userManager.AddToRoleAsync(user, "Deputy");
+            if (roles.Contains("Citizen"))
+                await _userManager.RemoveFromRoleAsync(user, "Citizen");
+        }
+        else
+        {
+            // Нет активного срока – убираем Deputy, оставляем Citizen
+            if (roles.Contains("Deputy"))
+                await _userManager.RemoveFromRoleAsync(user, "Deputy");
+            if (!roles.Contains("Citizen"))
+                await _userManager.AddToRoleAsync(user, "Citizen");
+        }
+
+        roles = await _userManager.GetRolesAsync(user);
 
         var token = GenerateJwtToken(user, roles);
         return Ok(new { Token = token, Roles = roles });
