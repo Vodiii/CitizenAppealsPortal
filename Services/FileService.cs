@@ -40,4 +40,26 @@ public class FileService : IFileService
         if (File.Exists(fullPath))
             File.Delete(fullPath);
     }
+
+    public async Task<string> SaveDocumentAsync(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            throw new ArgumentException("Файл не выбран или пуст.");
+
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".pdf", ".doc", ".docx" };
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!allowedExtensions.Contains(ext))
+            throw new ArgumentException("Недопустимый формат файла. Разрешены изображения и документы PDF/DOC.");
+
+        var fileName = $"{Guid.NewGuid()}{ext}";
+        var filePath = Path.Combine(_uploadFolder, fileName);
+
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        return Path.Combine("uploads", fileName).Replace("\\", "/");
+    }
+
 }

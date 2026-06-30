@@ -17,6 +17,10 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<AppealVote> AppealVotes { get; set; }
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<Comment> Comments { get; set; }
+    public DbSet<UserDocument> UserDocuments { get; set; }
+    public DbSet<UserSetting> UserSettings { get; set; }
+    public DbSet<UserLoginHistory> UserLoginHistories { get; set; }
+    public DbSet<UserCategorySubscription> UserCategorySubscriptions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -121,5 +125,36 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<District>()
             .HasIndex(d => d.Boundary)
             .HasMethod("GIST");
+
+        builder.Entity<UserDocument>()
+    .HasOne(d => d.User)
+    .WithMany(u => u.Documents)
+    .HasForeignKey(d => d.UserId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+builder.Entity<UserSetting>()
+    .HasOne(s => s.User)
+    .WithMany(u => u.Settings)
+    .HasForeignKey(s => s.UserId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+builder.Entity<UserLoginHistory>()
+    .HasOne(l => l.User)
+    .WithMany(u => u.LoginHistory)
+    .HasForeignKey(l => l.UserId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+builder.Entity<UserCategorySubscription>()
+    .HasOne(s => s.User)
+    .WithMany(u => u.CategorySubscriptions)
+    .HasForeignKey(s => s.UserId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+builder.Entity<UserCategorySubscription>()
+    .HasOne(s => s.Category)
+    .WithMany()
+    .HasForeignKey(s => s.CategoryId)
+    .OnDelete(DeleteBehavior.Cascade);
+
     }
 }

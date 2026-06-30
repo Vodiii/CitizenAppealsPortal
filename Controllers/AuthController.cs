@@ -52,14 +52,17 @@ public class AuthController : ControllerBase
         if (role != "Citizen" && role != "Deputy")
             role = "Citizen";
 
-        await _userManager.AddToRoleAsync(user, role);
-
         if (role == "Deputy")
         {
+            await _userManager.AddToRoleAsync(user, "Deputy");
             user.IsApproved = false;
-            await _userManager.UpdateAsync(user);
+        }
+        else
+        {
+            await _userManager.AddToRoleAsync(user, "Citizen");
         }
 
+        await _userManager.UpdateAsync(user);
         return Ok(new { Message = "Регистрация успешна" });
     }
 
@@ -72,28 +75,33 @@ public class AuthController : ControllerBase
 
         var roles = await _userManager.GetRolesAsync(user);
 
-        var now = DateTime.UtcNow;
-        var hasActiveTerm = await _context.DeputyTerms
-            .AnyAsync(t => t.DeputyId == user.Id && t.IsActive && t.StartDate <= now && t.EndDate >= now);
+        // Проверка срока депутата (если роль Deputy)
+        if (roles.Contains("Deputy"))
+        {
+            var now = DateTime.UtcNow;
+            var hasActiveTerm = await _context.DeputyTerms
+                .AnyAsync(t => t.DeputyId == user.Id && t.IsActive && t.StartDate <= now && t.EndDate >= now);
 
-        if (hasActiveTerm)
-        {
-            // Есть активный срок – должен быть Deputy, не должно быть Citizen
-            if (!roles.Contains("Deputy"))
-                await _userManager.AddToRoleAsync(user, "Deputy");
-            if (roles.Contains("Citizen"))
-                await _userManager.RemoveFromRoleAsync(user, "Citizen");
-        }
-        else
-        {
-            // Нет активного срока – убираем Deputy, оставляем Citizen
-            if (roles.Contains("Deputy"))
+            if (!hasActiveTerm)
+            {
                 await _userManager.RemoveFromRoleAsync(user, "Deputy");
-            if (!roles.Contains("Citizen"))
-                await _userManager.AddToRoleAsync(user, "Citizen");
+                if (!await _userManager.IsInRoleAsync(user, "Citizen"))
+                    await _userManager.AddToRoleAsync(user, "Citizen");
+            }
         }
 
+        // Обновляем роли после возможного снятия
         roles = await _userManager.GetRolesAsync(user);
+
+        // Записываем историю входа
+        _context.UserLoginHistories.Add(new UserLoginHistory
+        {
+            UserId = user.Id,
+            LoginTime = DateTime.UtcNow,
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers["User-Agent"].ToString()
+        });
+        await _context.SaveChangesAsync();
 
         var token = GenerateJwtToken(user, roles);
         return Ok(new { Token = token, Roles = roles });
