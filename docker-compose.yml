@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: CitizenAppealsDb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=CitizenAppealsDb;Username=postgres;Password=${DB_PASSWORD:-postgres}
+      - Jwt__Key=${JWT_KEY:-YourSuperSecretKeyWithAtLeast32CharactersLong!}
+      - AdminCredentials__Email=${ADMIN_EMAIL:-admin@example.com}
+      - AdminCredentials__Password=${ADMIN_PASSWORD:-Admin123!}
+    depends_on:
+      - db
+
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
