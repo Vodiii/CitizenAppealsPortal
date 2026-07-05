@@ -26,135 +26,171 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     {
         base.OnModelCreating(builder);
 
-        builder.Entity<Appeal>()
-            .HasOne(a => a.Citizen)
-            .WithMany(u => u.Appeals)
-            .HasForeignKey(a => a.CitizenId)
-            .OnDelete(DeleteBehavior.Restrict);
+        // === Appeals ===
+        builder.Entity<Appeal>(appeal =>
+        {
+            appeal.HasOne(a => a.Citizen)
+                  .WithMany(u => u.Appeals)
+                  .HasForeignKey(a => a.CitizenId)
+                  .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Entity<Appeal>()
-            .HasOne(a => a.District)
-            .WithMany(d => d.Appeals)
-            .HasForeignKey(a => a.DistrictId)
-            .OnDelete(DeleteBehavior.Restrict);
+            appeal.HasOne(a => a.District)
+                  .WithMany(d => d.Appeals)
+                  .HasForeignKey(a => a.DistrictId)
+                  .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Entity<Appeal>()
-            .HasOne(a => a.Category)
-            .WithMany(c => c.Appeals)
-            .HasForeignKey(a => a.CategoryId);
+            appeal.HasOne(a => a.Category)
+                  .WithMany(c => c.Appeals)
+                  .HasForeignKey(a => a.CategoryId);
 
-        builder.Entity<AppealResponse>()
-            .HasOne(r => r.Appeal)
-            .WithMany(a => a.Responses)
-            .HasForeignKey(r => r.AppealId)
-            .OnDelete(DeleteBehavior.Cascade);
+            appeal.HasIndex(a => a.CitizenId);
+            appeal.HasIndex(a => a.DistrictId);
+            appeal.HasIndex(a => a.Status);
+            appeal.HasIndex(a => a.CreatedAt);
+        });
 
-        builder.Entity<AppealResponse>()
-            .HasOne(r => r.Author)
-            .WithMany()
-            .HasForeignKey(r => r.AuthorId)
-            .OnDelete(DeleteBehavior.Restrict);
+        // === AppealResponses ===
+        builder.Entity<AppealResponse>(response =>
+        {
+            response.HasOne(r => r.Appeal)
+                    .WithMany(a => a.Responses)
+                    .HasForeignKey(r => r.AppealId)
+                    .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Entity<Photo>()
-            .HasOne(p => p.Appeal)
-            .WithMany(a => a.Photos)
-            .HasForeignKey(p => p.AppealId)
-            .OnDelete(DeleteBehavior.Cascade);
+            response.HasOne(r => r.Author)
+                    .WithMany()
+                    .HasForeignKey(r => r.AuthorId)
+                    .OnDelete(DeleteBehavior.Restrict);
 
-        // District -> Deputy (один-ко-многим)
-        builder.Entity<District>()
-            .HasMany(d => d.Deputies)
-            .WithOne(u => u.AssignedDistrict)
-            .HasForeignKey(u => u.AssignedDistrictId)
-            .OnDelete(DeleteBehavior.SetNull);
+            response.HasIndex(r => r.AppealId);
+        });
 
-        // DeputyTerms
-        builder.Entity<DeputyTerm>()
-            .HasOne(dt => dt.Deputy)
-            .WithMany(u => u.DeputyTerms)
-            .HasForeignKey(dt => dt.DeputyId)
-            .OnDelete(DeleteBehavior.Cascade);
+        // === Photos ===
+        builder.Entity<Photo>(photo =>
+        {
+            photo.HasOne(p => p.Appeal)
+                 .WithMany(a => a.Photos)
+                 .HasForeignKey(p => p.AppealId)
+                 .OnDelete(DeleteBehavior.Cascade);
 
-        // AppealVote
-        builder.Entity<AppealVote>()
-            .HasOne(v => v.Appeal)
-            .WithMany(a => a.Votes)
-            .HasForeignKey(v => v.AppealId)
-            .OnDelete(DeleteBehavior.Cascade);
+            photo.HasIndex(p => p.AppealId);
+        });
 
-        builder.Entity<AppealVote>()
-            .HasOne(v => v.User)
-            .WithMany()
-            .HasForeignKey(v => v.UserId)
-            .OnDelete(DeleteBehavior.Restrict);
+        // === Districts ===
+        builder.Entity<District>(district =>
+        {
+            district.HasMany(d => d.Deputies)
+                    .WithOne(u => u.AssignedDistrict)
+                    .HasForeignKey(u => u.AssignedDistrictId)
+                    .OnDelete(DeleteBehavior.SetNull);
 
-        builder.Entity<AppealVote>()
-            .HasIndex(v => new { v.AppealId, v.UserId })
-            .IsUnique();
+            district.HasIndex(d => d.Name).IsUnique();
+            district.HasIndex(d => d.Boundary).HasMethod("GIST");
+        });
 
-        // Notification
-        builder.Entity<Notification>()
-            .HasOne(n => n.User)
-            .WithMany()
-            .HasForeignKey(n => n.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+        // === DeputyTerms ===
+        builder.Entity<DeputyTerm>(term =>
+        {
+            term.HasOne(dt => dt.Deputy)
+                .WithMany(u => u.DeputyTerms)
+                .HasForeignKey(dt => dt.DeputyId)
+                .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Entity<Notification>()
-            .HasOne(n => n.Appeal)
-            .WithMany()
-            .HasForeignKey(n => n.AppealId)
-            .OnDelete(DeleteBehavior.Cascade);
+            term.HasIndex(dt => dt.DeputyId);
+        });
 
-        // Comment
-        builder.Entity<Comment>()
-            .HasOne(c => c.Appeal)
-            .WithMany(a => a.Comments)
-            .HasForeignKey(c => c.AppealId)
-            .OnDelete(DeleteBehavior.Cascade);
+        // === AppealVotes ===
+        builder.Entity<AppealVote>(vote =>
+        {
+            vote.HasOne(v => v.Appeal)
+                .WithMany(a => a.Votes)
+                .HasForeignKey(v => v.AppealId)
+                .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Entity<Comment>()
-            .HasOne(c => c.Author)
-            .WithMany()
-            .HasForeignKey(c => c.AuthorId)
-            .OnDelete(DeleteBehavior.Restrict);
+            vote.HasOne(v => v.User)
+                .WithMany()
+                .HasForeignKey(v => v.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Entity<District>()
-            .HasIndex(d => d.Name)
-            .IsUnique();
+            vote.HasIndex(v => new { v.AppealId, v.UserId }).IsUnique();
+        });
 
-        builder.Entity<District>()
-            .HasIndex(d => d.Boundary)
-            .HasMethod("GIST");
+        // === Notifications ===
+        builder.Entity<Notification>(notification =>
+        {
+            notification.HasOne(n => n.User)
+                        .WithMany()
+                        .HasForeignKey(n => n.UserId)
+                        .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Entity<UserDocument>()
-    .HasOne(d => d.User)
-    .WithMany(u => u.Documents)
-    .HasForeignKey(d => d.UserId)
-    .OnDelete(DeleteBehavior.Cascade);
+            notification.HasOne(n => n.Appeal)
+                        .WithMany()
+                        .HasForeignKey(n => n.AppealId)
+                        .OnDelete(DeleteBehavior.Cascade);
 
-builder.Entity<UserSetting>()
-    .HasOne(s => s.User)
-    .WithMany(u => u.Settings)
-    .HasForeignKey(s => s.UserId)
-    .OnDelete(DeleteBehavior.Cascade);
+            notification.HasIndex(n => n.UserId);
+        });
 
-builder.Entity<UserLoginHistory>()
-    .HasOne(l => l.User)
-    .WithMany(u => u.LoginHistory)
-    .HasForeignKey(l => l.UserId)
-    .OnDelete(DeleteBehavior.Cascade);
+        // === Comments ===
+        builder.Entity<Comment>(comment =>
+        {
+            comment.HasOne(c => c.Appeal)
+                   .WithMany(a => a.Comments)
+                   .HasForeignKey(c => c.AppealId)
+                   .OnDelete(DeleteBehavior.Cascade);
 
-builder.Entity<UserCategorySubscription>()
-    .HasOne(s => s.User)
-    .WithMany(u => u.CategorySubscriptions)
-    .HasForeignKey(s => s.UserId)
-    .OnDelete(DeleteBehavior.Cascade);
+            comment.HasOne(c => c.Author)
+                   .WithMany()
+                   .HasForeignKey(c => c.AuthorId)
+                   .OnDelete(DeleteBehavior.Restrict);
 
-builder.Entity<UserCategorySubscription>()
-    .HasOne(s => s.Category)
-    .WithMany()
-    .HasForeignKey(s => s.CategoryId)
-    .OnDelete(DeleteBehavior.Cascade);
+            comment.HasIndex(c => c.AppealId);
+        });
 
+        // === Профиль пользователя ===
+        builder.Entity<UserDocument>(doc =>
+        {
+            doc.HasOne(d => d.User)
+               .WithMany(u => u.Documents)
+               .HasForeignKey(d => d.UserId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+            doc.HasIndex(d => d.UserId);
+        });
+
+        builder.Entity<UserSetting>(setting =>
+        {
+            setting.HasOne(s => s.User)
+                   .WithMany(u => u.Settings)
+                   .HasForeignKey(s => s.UserId)
+                   .OnDelete(DeleteBehavior.Cascade);
+
+            setting.HasIndex(s => s.UserId);
+        });
+
+        builder.Entity<UserLoginHistory>(history =>
+        {
+            history.HasOne(l => l.User)
+                   .WithMany(u => u.LoginHistory)
+                   .HasForeignKey(l => l.UserId)
+                   .OnDelete(DeleteBehavior.Cascade);
+
+            history.HasIndex(l => l.UserId);
+        });
+
+        builder.Entity<UserCategorySubscription>(subscription =>
+        {
+            subscription.HasOne(s => s.User)
+                        .WithMany(u => u.CategorySubscriptions)
+                        .HasForeignKey(s => s.UserId)
+                        .OnDelete(DeleteBehavior.Cascade);
+
+            subscription.HasOne(s => s.Category)
+                        .WithMany()
+                        .HasForeignKey(s => s.CategoryId)
+                        .OnDelete(DeleteBehavior.Cascade);
+
+            subscription.HasIndex(s => s.UserId);
+        });
     }
 }

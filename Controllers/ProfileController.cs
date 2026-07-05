@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 
 namespace CitizenAppealsPortal.Controllers;
@@ -18,15 +19,18 @@ public class ProfileController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly ApplicationDbContext _context;
     private readonly IFileService _fileService;
+    private readonly ILogger<ProfileController> _logger;
 
     public ProfileController(
         UserManager<ApplicationUser> userManager,
         ApplicationDbContext context,
-        IFileService fileService)
+        IFileService fileService,
+        ILogger<ProfileController> logger)
     {
         _userManager = userManager;
         _context = context;
         _fileService = fileService;
+        _logger = logger;
     }
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
@@ -84,6 +88,7 @@ public class ProfileController : ControllerBase
         user.PhoneNumber = dto.PhoneNumber;
         user.DateOfBirth = dto.DateOfBirth;
         await _userManager.UpdateAsync(user);
+        _logger.LogInformation("Профиль пользователя {UserId} обновлён", UserId);
         return NoContent();
     }
 
@@ -95,7 +100,13 @@ public class ProfileController : ControllerBase
         if (user == null) return NotFound();
 
         var result = await _userManager.ChangePasswordAsync(user, dto.CurrentPassword, dto.NewPassword);
-        if (!result.Succeeded) return BadRequest(result.Errors);
+        if (!result.Succeeded)
+        {
+            _logger.LogWarning("Неудачная попытка смены пароля для пользователя {UserId}", UserId);
+            return BadRequest(result.Errors);
+        }
+
+        _logger.LogInformation("Пароль пользователя {UserId} изменён", UserId);
         return NoContent();
     }
 
@@ -148,6 +159,7 @@ public class ProfileController : ControllerBase
         };
         _context.UserDocuments.Add(doc);
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Документ загружен пользователем {UserId}: {FileName}", UserId, dto.File.FileName);
         return CreatedAtAction(nameof(GetDocuments), new { id = doc.Id }, new UserDocumentDto
         {
             Id = doc.Id,
@@ -166,6 +178,7 @@ public class ProfileController : ControllerBase
         _fileService.DeletePhoto(doc.FilePath);
         _context.UserDocuments.Remove(doc);
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Документ {DocumentId} удалён пользователем {UserId}", id, UserId);
         return NoContent();
     }
 
@@ -191,6 +204,7 @@ public class ProfileController : ControllerBase
             else _context.UserSettings.Add(new UserSetting { UserId = UserId, Key = setting.Key, Value = setting.Value });
         }
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Настройки пользователя {UserId} обновлены", UserId);
         return NoContent();
     }
 
@@ -263,6 +277,7 @@ public class ProfileController : ControllerBase
         }
 
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Подписки пользователя {UserId} обновлены", UserId);
         return NoContent();
     }
 }

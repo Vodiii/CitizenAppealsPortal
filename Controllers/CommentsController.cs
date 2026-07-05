@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 
 namespace CitizenAppealsPortal.Controllers;
@@ -15,14 +16,21 @@ public class CommentsController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly ILogger<CommentsController> _logger;
 
-    public CommentsController(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    public CommentsController(
+        ApplicationDbContext context,
+        UserManager<ApplicationUser> userManager,
+        ILogger<CommentsController> logger)
     {
         _context = context;
         _userManager = userManager;
+        _logger = logger;
     }
 
-    // GET /api/appeals/{appealId}/comments
+    /// <summary>
+    /// Возвращает список неудалённых комментариев для заданного обращения.
+    /// </summary>
     [HttpGet("/api/appeals/{appealId}/comments")]
     public async Task<IActionResult> GetComments(int appealId)
     {
@@ -45,12 +53,18 @@ public class CommentsController : ControllerBase
         return Ok(comments);
     }
 
-    // POST /api/appeals/{appealId}/comments
+    /// <summary>
+    /// Создаёт новый комментарий к обращению.
+    /// </summary>
     [HttpPost("/api/appeals/{appealId}/comments")]
     public async Task<IActionResult> CreateComment(int appealId, [FromBody] CreateCommentDto dto)
     {
         var appeal = await _context.Appeals.FindAsync(appealId);
-        if (appeal == null) return NotFound("Обращение не найдено.");
+        if (appeal == null)
+        {
+            _logger.LogWarning("Попытка добавить комментарий к несуществующему обращению {AppealId}", appealId);
+            return NotFound("Обращение не найдено.");
+        }
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var comment = new Comment
@@ -67,6 +81,9 @@ public class CommentsController : ControllerBase
             .Include(c => c.Author)
             .FirstOrDefaultAsync(c => c.Id == comment.Id);
 
+        _logger.LogInformation("Пользователь {UserId} добавил комментарий {CommentId} к обращению {AppealId}",
+            userId, comment.Id, appealId);
+
         return CreatedAtAction(nameof(GetComments), new { appealId }, new CommentDto
         {
             Id = created!.Id,
@@ -79,7 +96,9 @@ public class CommentsController : ControllerBase
         });
     }
 
-    // PUT /api/comments/{id}
+    /// <summary>
+    /// Редактирует существующий комментарий (доступно только автору).
+    /// </summary>
     [HttpPut("/api/comments/{id}")]
     public async Task<IActionResult> UpdateComment(int id, [FromBody] CreateCommentDto dto)
     {
@@ -88,14 +107,20 @@ public class CommentsController : ControllerBase
         if (comment == null) return NotFound();
 
         if (comment.AuthorId != userId)
+        {
+            _logger.LogWarning("Пользователь {UserId} попытался отредактировать чужой комментарий {CommentId}", userId, id);
             return StatusCode(403, new { message = "Редактировать можно только свои комментарии." });
+        }
 
         comment.Text = dto.Text;
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Комментарий {CommentId} отредактирован пользователем {UserId}", id, userId);
         return NoContent();
     }
 
-    // DELETE /api/comments/{id}
+    /// <summary>
+    /// Мягко удаляет комментарий (доступно автору или администратору).
+    /// </summary>
     [HttpDelete("/api/comments/{id}")]
     public async Task<IActionResult> DeleteComment(int id)
     {
@@ -103,12 +128,16 @@ public class CommentsController : ControllerBase
         var comment = await _context.Comments.FindAsync(id);
         if (comment == null) return NotFound();
 
-        var isAdmin = User.IsInRole("Admin");
+        bool isAdmin = User.IsInRole(RoleNames.Admin);
         if (comment.AuthorId != userId && !isAdmin)
-            return StatusCode(403, new { message = "Удалять можно только свои комментарии." });
+        {
+            _logger.LogWarning("Пользователь {UserId} попытался удалить чужой комментарий {CommentId}", userId, id);
+            return StatusCode(403, new { message = "Удалять можно только свои комментарии. Администратор может удалять любые." });
+        }
 
         comment.IsDeleted = true;
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Комментарий {CommentId} удалён пользователем {UserId}", id, userId);
         return NoContent();
     }
 }

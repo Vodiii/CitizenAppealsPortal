@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
 using System.Security.Claims;
@@ -24,14 +25,16 @@ public class AppealsController : ControllerBase
     private readonly IGeoService _geoService;
     private readonly IFileService _fileService;
     private readonly GeoJsonWriter _geoJsonWriter;
-    private readonly IHubContext<NotificationHub> _hubContext;
+    private readonly IHubContext<NotificationHub>? _hubContext;  // может быть null, если SignalR не подключён
+    private readonly ILogger<AppealsController> _logger;
 
     public AppealsController(
         ApplicationDbContext context,
         UserManager<ApplicationUser> userManager,
         IGeoService geoService,
         IFileService fileService,
-        IHubContext<NotificationHub> hubContext)
+        IHubContext<NotificationHub>? hubContext,
+        ILogger<AppealsController> logger)
     {
         _context = context;
         _userManager = userManager;
@@ -39,7 +42,50 @@ public class AppealsController : ControllerBase
         _fileService = fileService;
         _geoJsonWriter = new GeoJsonWriter();
         _hubContext = hubContext;
+        _logger = logger;
     }
+
+    // ========== Приватные хелперы ==========
+
+    /// <summary>
+    /// Добавляет уведомление в контекст и, если доступен SignalR, отправляет его получателю в реальном времени.
+    /// </summary>
+    private async Task SendNotificationAsync(string userId, int? appealId, string type, string message)
+    {
+        var notification = new Notification
+        {
+            UserId = userId,
+            AppealId = appealId,
+            Type = type,
+            Message = message,
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.Notifications.Add(notification);
+        await _context.SaveChangesAsync();  // сохраняем, чтобы получить Id
+
+        // Отправка через SignalR (если хаб доступен)
+        if (_hubContext != null)
+        {
+            try
+            {
+                await _hubContext.Clients.User(userId).SendAsync("ReceiveNotification", new
+                {
+                    id = notification.Id,
+                    type = notification.Type,
+                    message = notification.Message,
+                    appealId = notification.AppealId,
+                    createdAt = notification.CreatedAt,
+                    isRead = false
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Не удалось отправить SignalR-уведомление пользователю {UserId}", userId);
+            }
+        }
+    }
+
+    // ========== Эндпоинты ==========
 
     [HttpGet]
     public async Task<IActionResult> GetAppeals(
@@ -63,9 +109,9 @@ public class AppealsController : ControllerBase
         var user = await _userManager.FindByIdAsync(userId!);
         var roles = await _userManager.GetRolesAsync(user!);
 
-        if (roles.Contains("Citizen"))
+        if (roles.Contains(RoleNames.Citizen))
             query = query.Where(a => a.CitizenId == userId);
-        else if (roles.Contains("Deputy"))
+        else if (roles.Contains(RoleNames.Deputy))
         {
             if (user!.AssignedDistrictId == null)
                 return BadRequest("Депутат не привязан к округу.");
@@ -85,8 +131,7 @@ public class AppealsController : ControllerBase
 
         var total = await query.CountAsync();
 
-        // Сортировка: депутаты видят по убыванию рейтинга, остальные – по дате
-        var orderedQuery = roles.Contains("Deputy")
+        var orderedQuery = roles.Contains(RoleNames.Deputy)
             ? query.OrderByDescending(a => a.Score).ThenByDescending(a => a.CreatedAt)
             : query.OrderByDescending(a => a.CreatedAt);
 
@@ -143,9 +188,9 @@ public class AppealsController : ControllerBase
         var user = await _userManager.FindByIdAsync(userId!);
         var roles = await _userManager.GetRolesAsync(user!);
 
-        if (roles.Contains("Citizen") && appeal.CitizenId != userId)
+        if (roles.Contains(RoleNames.Citizen) && appeal.CitizenId != userId)
             return Forbid();
-        if (roles.Contains("Deputy") && appeal.DistrictId != user!.AssignedDistrictId)
+        if (roles.Contains(RoleNames.Deputy) && appeal.DistrictId != user!.AssignedDistrictId)
             return Forbid();
 
         var dto = new AppealDto
@@ -189,10 +234,11 @@ public class AppealsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "Citizen")]
+    [Authorize(Roles = RoleNames.Citizen)]
     public async Task<IActionResult> CreateAppeal([FromForm] CreateAppealDto dto)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var user = await _userManager.FindByIdAsync(userId!);
 
         var point = ParsePoint(dto.LocationGeoJson);
         if (point == null) return BadRequest("Некорректные координаты.");
@@ -270,7 +316,7 @@ public class AppealsController : ControllerBase
     }
 
     [HttpPut("{id}/status")]
-    [Authorize(Roles = "Deputy,Admin")]
+    [Authorize(Roles = RoleNames.Deputy + "," + RoleNames.Admin)]
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDto dto)
     {
         var appeal = await _context.Appeals.FindAsync(id);
@@ -279,7 +325,7 @@ public class AppealsController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var user = await _userManager.FindByIdAsync(userId!);
         var roles = await _userManager.GetRolesAsync(user!);
-        if (roles.Contains("Deputy") && appeal.DistrictId != user!.AssignedDistrictId)
+        if (roles.Contains(RoleNames.Deputy) && appeal.DistrictId != user!.AssignedDistrictId)
             return Forbid();
 
         var oldStatus = appeal.Status;
@@ -296,34 +342,18 @@ public class AppealsController : ControllerBase
         };
         _context.AppealResponses.Add(response);
 
-        var notification = new Notification
-        {
-            UserId = appeal.CitizenId,
-            AppealId = appeal.Id,
-            Type = "StatusChange",
-            Message = $"Статус вашего обращения «{appeal.Title}» изменён на {dto.NewStatus}.",
-            CreatedAt = DateTime.UtcNow
-        };
-        _context.Notifications.Add(notification);
+        // Уведомление автору
+        await SendNotificationAsync(appeal.CitizenId, appeal.Id,
+            NotificationType.StatusChange,
+            $"Статус вашего обращения «{appeal.Title}» изменён на {dto.NewStatus}.");
 
         await _context.SaveChangesAsync();
-
-        // SignalR уведомление автору
-        await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
-        {
-            id = notification.Id,
-            type = notification.Type,
-            message = notification.Message,
-            appealId = notification.AppealId,
-            createdAt = notification.CreatedAt,
-            isRead = false
-        });
 
         return Ok(new { Message = "Статус обновлён" });
     }
 
     [HttpPost("{id}/respond")]
-    [Authorize(Roles = "Deputy,Admin")]
+    [Authorize(Roles = RoleNames.Deputy + "," + RoleNames.Admin)]
     public async Task<IActionResult> AddResponse(int id, [FromBody] AddResponseDto dto)
     {
         var appeal = await _context.Appeals.FindAsync(id);
@@ -332,7 +362,7 @@ public class AppealsController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var user = await _userManager.FindByIdAsync(userId!);
         var roles = await _userManager.GetRolesAsync(user!);
-        if (roles.Contains("Deputy") && appeal.DistrictId != user!.AssignedDistrictId)
+        if (roles.Contains(RoleNames.Deputy) && appeal.DistrictId != user!.AssignedDistrictId)
             return Forbid();
 
         var response = new AppealResponse
@@ -346,41 +376,23 @@ public class AppealsController : ControllerBase
         _context.AppealResponses.Add(response);
 
         var snippet = dto.Content.Length > 50 ? dto.Content[..50] + "..." : dto.Content;
-        var notification = new Notification
-        {
-            UserId = appeal.CitizenId,
-            AppealId = appeal.Id,
-            Type = "NewResponse",
-            Message = $"Новый ответ по обращению «{appeal.Title}»: {snippet}",
-            CreatedAt = DateTime.UtcNow
-        };
-        _context.Notifications.Add(notification);
+        await SendNotificationAsync(appeal.CitizenId, appeal.Id,
+            NotificationType.NewResponse,
+            $"Новый ответ по обращению «{appeal.Title}»: {snippet}");
 
         await _context.SaveChangesAsync();
-
-        await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
-        {
-            id = notification.Id,
-            type = notification.Type,
-            message = notification.Message,
-            appealId = notification.AppealId,
-            createdAt = notification.CreatedAt,
-            isRead = false
-        });
-
         return Ok(new { Message = "Ответ добавлен" });
     }
 
     [HttpPost("{id}/reopen")]
-    [Authorize(Roles = "Citizen")]
+    [Authorize(Roles = RoleNames.Citizen)]
     public async Task<IActionResult> ReopenAppeal(int id, [FromBody] ReopenAppealDto dto)
     {
         var appeal = await _context.Appeals.FindAsync(id);
         if (appeal == null) return NotFound();
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (appeal.CitizenId != userId)
-            return Forbid();
+        if (appeal.CitizenId != userId) return Forbid();
 
         if (appeal.Status != AppealStatus.Completed && appeal.Status != AppealStatus.Rejected)
             return BadRequest("Обращение можно возобновить только после завершения или отклонения.");
@@ -406,28 +418,15 @@ public class AppealsController : ControllerBase
 
         foreach (var dep in districtDeputies)
         {
-            var notif = new Notification
-            {
-                UserId = dep.Id,
-                AppealId = appeal.Id,
-                Type = "Reopen",
-                Message = $"Обращение «{appeal.Title}» возобновлено гражданином: {dto.Message}",
-                CreatedAt = DateTime.UtcNow
-            };
-            _context.Notifications.Add(notif);
-            await _context.SaveChangesAsync();
-
-            await _hubContext.Clients.User(dep.Id).SendAsync("ReceiveNotification", new
-            {
-                id = notif.Id,
-                type = notif.Type,
-                message = notif.Message,
-                appealId = notif.AppealId,
-                createdAt = notif.CreatedAt,
-                isRead = false
-            });
+            await SendNotificationAsync(dep.Id, appeal.Id,
+                NotificationType.Reopen,
+                $"Обращение «{appeal.Title}» возобновлено гражданином: {dto.Message}");
         }
 
+        // Сохраняем оставшиеся изменения
+        await _context.SaveChangesAsync();
+
+        // Возвращаем обновлённое обращение (код повторяющийся, но для ясности оставлен)
         var createdAppeal = await _context.Appeals
             .Include(a => a.Category).Include(a => a.District).Include(a => a.Citizen)
             .Include(a => a.Photos).Include(a => a.Responses).ThenInclude(r => r.Author)
@@ -469,7 +468,6 @@ public class AppealsController : ControllerBase
         return Ok(dtoResponse);
     }
 
-    
     [HttpPost("{id}/vote")]
     [Authorize]
     public async Task<IActionResult> VoteAppeal(int id, [FromBody] VoteDto dto)
@@ -477,29 +475,27 @@ public class AppealsController : ControllerBase
         if (dto.VoteType != 1 && dto.VoteType != -1)
             return BadRequest("VoteType должен быть 1 или -1.");
 
-        var appeal = await _context.Appeals
-            .Include(a => a.Votes)
-            .FirstOrDefaultAsync(a => a.Id == id);
+        var appeal = await _context.Appeals.Include(a => a.Votes).FirstOrDefaultAsync(a => a.Id == id);
         if (appeal == null) return NotFound();
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
         var existingVote = appeal.Votes.FirstOrDefault(v => v.UserId == userId);
-        int finalVoteType = 0;
+        int finalVoteType;
 
         if (existingVote != null)
         {
-           if (existingVote.VoteType == dto.VoteType)
-           {
-               // отмена голоса
+            if (existingVote.VoteType == dto.VoteType)
+            {
+                // Отмена голоса
+                appeal.Score -= existingVote.VoteType;
                 _context.AppealVotes.Remove(existingVote);
-                appeal.Score -= dto.VoteType;
                 finalVoteType = 0;
             }
-           else
+            else
             {
-                // замена голоса
+                // Замена голоса
                 appeal.Score -= existingVote.VoteType;
                 existingVote.VoteType = dto.VoteType;
                 appeal.Score += dto.VoteType;
@@ -508,72 +504,41 @@ public class AppealsController : ControllerBase
         }
         else
         {
-            // новый голос
-            var vote = new AppealVote
+            _context.AppealVotes.Add(new AppealVote
             {
                 AppealId = id,
                 UserId = userId,
                 VoteType = dto.VoteType
-            };
-            _context.AppealVotes.Add(vote);
-           appeal.Score += dto.VoteType;
+            });
+            appeal.Score += dto.VoteType;
             finalVoteType = dto.VoteType;
         }
 
-        // Уведомление создаём только если голос не отменён (finalVoteType != 0)
         if (finalVoteType != 0)
         {
-            var notification = new Notification
-            {
-                UserId = appeal.CitizenId,
-                AppealId = appeal.Id,
-                Type = "NewVote",
-                Message = finalVoteType == 1
+            await SendNotificationAsync(appeal.CitizenId, appeal.Id,
+                NotificationType.NewVote,
+                finalVoteType == 1
                     ? $"Ваше обращение «{appeal.Title}» получило голос 👍. Текущий рейтинг: {appeal.Score}"
-                    : $"Ваше обращение «{appeal.Title}» получило голос 👎. Текущий рейтинг: {appeal.Score}",
-                CreatedAt = DateTime.UtcNow
-            };
-           _context.Notifications.Add(notification);
-
-            await _context.SaveChangesAsync(); // сохраняем уведомление
-
-            // SignalR уведомление автору
-            await _hubContext.Clients.User(appeal.CitizenId).SendAsync("ReceiveNotification", new
-            {
-                id = notification.Id,
-                type = notification.Type,
-                message = notification.Message,
-                appealId = notification.AppealId,
-                createdAt = notification.CreatedAt,
-                isRead = false
-            });
-        }
-        else
-        {
-            // Если голос отменён, просто сохраняем изменения
-            await _context.SaveChangesAsync();
+                    : $"Ваше обращение «{appeal.Title}» получило голос 👎. Текущий рейтинг: {appeal.Score}");
         }
 
-        // Актуальные счётчики после всех изменений
-        int upVotes = appeal.Votes.Count(v => v.VoteType == 1);
-        int downVotes = appeal.Votes.Count(v => v.VoteType == -1);
+        await _context.SaveChangesAsync();
 
         return Ok(new
         {
             score = appeal.Score,
-            upVotes = upVotes,
-            downVotes = downVotes,
+            upVotes = appeal.Votes.Count(v => v.VoteType == 1),
+            downVotes = appeal.Votes.Count(v => v.VoteType == -1),
             userVote = finalVoteType
         });
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = RoleNames.Admin)]
     public async Task<IActionResult> DeleteAppeal(int id)
     {
-        var appeal = await _context.Appeals
-            .Include(a => a.Photos)
-            .FirstOrDefaultAsync(a => a.Id == id);
+        var appeal = await _context.Appeals.Include(a => a.Photos).FirstOrDefaultAsync(a => a.Id == id);
         if (appeal == null) return NotFound();
 
         foreach (var photo in appeal.Photos)
@@ -598,3 +563,4 @@ public class AppealsController : ControllerBase
         }
     }
 }
+

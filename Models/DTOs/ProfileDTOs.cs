@@ -1,5 +1,8 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace CitizenAppealsPortal.Models.DTOs;
 
+// === Ответные DTO (формируются сервером, без валидации) ===
 public class ProfileDto
 {
     public string Email { get; set; } = string.Empty;
@@ -19,19 +22,6 @@ public class DeputyInfoDto
     public bool IsActiveTerm { get; set; }
 }
 
-public class UpdateProfileDto
-{
-    public string FullName { get; set; } = string.Empty;
-    public string? PhoneNumber { get; set; }
-    public DateTime? DateOfBirth { get; set; }
-}
-
-public class ChangePasswordDto
-{
-    public string CurrentPassword { get; set; } = string.Empty;
-    public string NewPassword { get; set; } = string.Empty;
-}
-
 public class UserDocumentDto
 {
     public int Id { get; set; }
@@ -39,23 +29,6 @@ public class UserDocumentDto
     public string FileName { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
     public DateTime UploadedAt { get; set; }
-}
-
-public class CreateDocumentDto
-{
-    public string DocumentType { get; set; } = string.Empty;
-    public IFormFile File { get; set; } = null!;
-}
-
-public class UserSettingDto
-{
-    public string Key { get; set; } = string.Empty;
-    public string Value { get; set; } = string.Empty;
-}
-
-public class UpdateSettingsDto
-{
-    public List<UserSettingDto> Settings { get; set; } = new();
 }
 
 public class LoginHistoryDto
@@ -72,7 +45,60 @@ public class CategorySubscriptionDto
     public bool Subscribed { get; set; }
 }
 
+// === DTO, принимаемые от клиента (с валидацией) ===
+public class UpdateProfileDto
+{
+    [Required(ErrorMessage = "ФИО обязательно")]
+    [MaxLength(100, ErrorMessage = "ФИО не должно превышать 100 символов")]
+    public string FullName { get; set; } = string.Empty;
+
+    [MaxLength(20, ErrorMessage = "Телефон не должен превышать 20 символов")]
+    public string? PhoneNumber { get; set; }
+
+    [DataType(DataType.Date, ErrorMessage = "Некорректная дата рождения")]
+    public DateTime? DateOfBirth { get; set; }
+}
+
+public class ChangePasswordDto
+{
+    [Required(ErrorMessage = "Текущий пароль обязателен")]
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Новый пароль обязателен")]
+    [MinLength(6, ErrorMessage = "Пароль должен содержать не менее 6 символов")]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class CreateDocumentDto
+{
+    [Required(ErrorMessage = "Тип документа обязателен")]
+    [MaxLength(50, ErrorMessage = "Тип документа не должен превышать 50 символов")]
+    public string DocumentType { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Файл обязателен")]
+    public IFormFile File { get; set; } = null!;
+}
+
+public class UserSettingDto
+{
+    [Required(ErrorMessage = "Ключ настройки обязателен")]
+    [MaxLength(100)]
+    public string Key { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Значение настройки обязательно")]
+    [MaxLength(500)]
+    public string Value { get; set; } = string.Empty;
+}
+
+public class UpdateSettingsDto
+{
+    [Required(ErrorMessage = "Список настроек обязателен")]
+    [MinLength(1, ErrorMessage = "Необходимо передать хотя бы одну настройку")]
+    public List<UserSettingDto> Settings { get; set; } = new();
+}
+
 public class UpdateSubscriptionsDto
 {
-    public List<int> CategoryIds { get; set; } = new();  // список ID категорий, на которые подписываемся (заменяет текущие)
+    [Required(ErrorMessage = "Список категорий обязателен")]
+    public List<int> CategoryIds { get; set; } = new();
 }

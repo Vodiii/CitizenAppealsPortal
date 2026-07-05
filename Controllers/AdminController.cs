@@ -5,10 +5,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CitizenAppealsPortal.Controllers;
 
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = RoleNames.Admin)]
 [ApiController]
 [Route("api/admin")]
 public class AdminController : ControllerBase
@@ -16,12 +17,18 @@ public class AdminController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
+    private readonly ILogger<AdminController> _logger;
 
-    public AdminController(ApplicationDbContext context, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager)
+    public AdminController(
+        ApplicationDbContext context,
+        UserManager<ApplicationUser> userManager,
+        RoleManager<IdentityRole> roleManager,
+        ILogger<AdminController> logger)
     {
         _context = context;
         _userManager = userManager;
         _roleManager = roleManager;
+        _logger = logger;
     }
 
     // ========== Депутаты ==========
@@ -29,7 +36,7 @@ public class AdminController : ControllerBase
     [HttpGet("deputies/pending")]
     public async Task<IActionResult> GetPendingDeputies()
     {
-        var deputies = await _userManager.GetUsersInRoleAsync("Deputy");
+        var deputies = await _userManager.GetUsersInRoleAsync(RoleNames.Deputy);
         var pending = deputies.Where(d => !d.IsApproved).ToList();
         return Ok(pending);
     }
@@ -40,30 +47,34 @@ public class AdminController : ControllerBase
         var user = await _userManager.FindByIdAsync(id);
         if (user == null) return NotFound();
 
-        if (dto.Approve)
+        if (!dto.Approve)
         {
-            user.IsApproved = true;
-            user.AssignedDistrictId = dto.DistrictId;
-            await _userManager.UpdateAsync(user);
-
-            if (!await _userManager.IsInRoleAsync(user, "Deputy"))
-                await _userManager.AddToRoleAsync(user, "Deputy");
-
-            var term = new DeputyTerm
-            {
-                DeputyId = id,
-                StartDate = DateTime.UtcNow,
-                EndDate = dto.TermMonths.HasValue ? DateTime.UtcNow.AddMonths(dto.TermMonths.Value) : DateTime.MaxValue,
-                IsActive = true
-            };
-            _context.DeputyTerms.Add(term);
-            await _context.SaveChangesAsync();
-        }
-        else
-        {
+            // Отклонение заявки – удаляем пользователя (поведение оставлено как было)
             await _userManager.DeleteAsync(user);
+            return NoContent();
         }
 
+        user.IsApproved = true;
+        user.AssignedDistrictId = dto.DistrictId;
+        await _userManager.UpdateAsync(user);
+
+        if (!await _userManager.IsInRoleAsync(user, RoleNames.Deputy))
+            await _userManager.AddToRoleAsync(user, RoleNames.Deputy);
+
+        var term = new DeputyTerm
+        {
+            DeputyId = id,
+            StartDate = DateTime.UtcNow,
+            // Если срок не указан, назначаем бессрочный срок (до максимальной даты)
+            EndDate = dto.TermMonths.HasValue
+                ? DateTime.UtcNow.AddMonths(dto.TermMonths.Value)
+                : DateTime.MaxValue,
+            IsActive = true
+        };
+        _context.DeputyTerms.Add(term);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Депутат {DeputyId} утверждён администратором", id);
         return NoContent();
     }
 
@@ -75,6 +86,7 @@ public class AdminController : ControllerBase
 
         var activeTerm = await _context.DeputyTerms
             .FirstOrDefaultAsync(t => t.DeputyId == id && t.IsActive);
+
         if (activeTerm == null)
             return BadRequest("Нет активного срока для этого депутата.");
 
@@ -93,6 +105,7 @@ public class AdminController : ControllerBase
         }
 
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Срок депутата {DeputyId} изменён", id);
         return NoContent();
     }
 
@@ -112,6 +125,7 @@ public class AdminController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GetCategories()
     {
+        // Возвращаем все категории (админ видит все, граждане/депутаты тоже видят все)
         return Ok(await _context.Categories.ToListAsync());
     }
 
@@ -139,7 +153,8 @@ public class AdminController : ControllerBase
         category.Name = dto.Name;
         category.Description = dto.Description;
         category.IsActive = dto.IsActive;
-        category.Code = dto.Code ?? category.Code; // сохраняем старый код, если не передан
+        if (!string.IsNullOrEmpty(dto.Code))   // явная проверка, чтобы не затирать null-ом
+            category.Code = dto.Code;
 
         await _context.SaveChangesAsync();
         return NoContent();
@@ -155,3 +170,4 @@ public class AdminController : ControllerBase
         return NoContent();
     }
 }
+

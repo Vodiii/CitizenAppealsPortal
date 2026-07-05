@@ -1,7 +1,11 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace CitizenAppealsPortal.Models.DTOs;
 
 public class CreateCommentDto
 {
+    [Required(ErrorMessage = "Текст комментария обязателен")]
+    [MaxLength(1000, ErrorMessage = "Комментарий не должен превышать 1000 символов")]
     public string Text { get; set; } = string.Empty;
 }
 

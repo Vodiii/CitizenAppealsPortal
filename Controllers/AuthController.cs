@@ -4,6 +4,7 @@ using CitizenAppealsPortal.Models.DTOs;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -19,17 +20,23 @@ public class AuthController : ControllerBase
     private readonly RoleManager<IdentityRole> _roleManager;
     private readonly IConfiguration _configuration;
     private readonly ApplicationDbContext _context;
+    private readonly ILogger<AuthController> _logger;
+
+    // Имена claim'ов как константы, чтобы избежать опечаток
+    private const string ClaimFullName = "fullName";
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
         RoleManager<IdentityRole> roleManager,
         IConfiguration configuration,
-        ApplicationDbContext context)
+        ApplicationDbContext context,
+        ILogger<AuthController> logger)
     {
         _userManager = userManager;
         _roleManager = roleManager;
         _configuration = configuration;
         _context = context;
+        _logger = logger;
     }
 
     [HttpPost("register")]
@@ -46,23 +53,33 @@ public class AuthController : ControllerBase
 
         var result = await _userManager.CreateAsync(user, model.Password);
         if (!result.Succeeded)
-            return BadRequest(result.Errors);
-
-        string role = model.Role ?? "Citizen";
-        if (role != "Citizen" && role != "Deputy")
-            role = "Citizen";
-
-        if (role == "Deputy")
         {
-            await _userManager.AddToRoleAsync(user, "Deputy");
-            user.IsApproved = false;
+            _logger.LogWarning("Ошибка регистрации пользователя {Email}: {Errors}",
+                model.Email, string.Join(", ", result.Errors.Select(e => e.Description)));
+            return BadRequest(result.Errors);
+        }
+
+        // Нормализация роли: если роль не указана или указана некорректно, назначаем Citizen
+        var role = model.Role switch
+        {
+            RoleNames.Deputy => RoleNames.Deputy,
+            _ => RoleNames.Citizen
+        };
+
+        await _userManager.AddToRoleAsync(user, role);
+
+        if (role == RoleNames.Deputy)
+        {
+            user.IsApproved = false;  // депутат требует подтверждения администратором
         }
         else
         {
-            await _userManager.AddToRoleAsync(user, "Citizen");
+            user.IsApproved = true;   // граждане подтверждены по умолчанию
         }
 
         await _userManager.UpdateAsync(user);
+
+        _logger.LogInformation("Пользователь {Email} зарегистрирован с ролью {Role}", model.Email, role);
         return Ok(new { Message = "Регистрация успешна" });
     }
 
@@ -71,64 +88,98 @@ public class AuthController : ControllerBase
     {
         var user = await _userManager.FindByEmailAsync(model.Email);
         if (user == null || !await _userManager.CheckPasswordAsync(user, model.Password))
+        {
+            _logger.LogWarning("Неудачная попытка входа для {Email}", model.Email);
             return Unauthorized("Неверный email или пароль.");
+        }
+
+        // Проверка и актуализация роли депутата по сроку полномочий
+        await EnsureDeputyRoleValidityAsync(user);
 
         var roles = await _userManager.GetRolesAsync(user);
 
-        // Проверка срока депутата (если роль Deputy)
-        if (roles.Contains("Deputy"))
+        // Запись истории входа (без прерывания входа при ошибке записи)
+        try
         {
-            var now = DateTime.UtcNow;
-            var hasActiveTerm = await _context.DeputyTerms
-                .AnyAsync(t => t.DeputyId == user.Id && t.IsActive && t.StartDate <= now && t.EndDate >= now);
-
-            if (!hasActiveTerm)
+            _context.UserLoginHistories.Add(new UserLoginHistory
             {
-                await _userManager.RemoveFromRoleAsync(user, "Deputy");
-                if (!await _userManager.IsInRoleAsync(user, "Citizen"))
-                    await _userManager.AddToRoleAsync(user, "Citizen");
-            }
+                UserId = user.Id,
+                LoginTime = DateTime.UtcNow,
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers["User-Agent"].ToString()
+            });
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Не удалось записать историю входа для пользователя {UserId}", user.Id);
         }
 
-        // Обновляем роли после возможного снятия
-        roles = await _userManager.GetRolesAsync(user);
-
-        // Записываем историю входа
-        _context.UserLoginHistories.Add(new UserLoginHistory
-        {
-            UserId = user.Id,
-            LoginTime = DateTime.UtcNow,
-            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-            UserAgent = Request.Headers["User-Agent"].ToString()
-        });
-        await _context.SaveChangesAsync();
-
         var token = GenerateJwtToken(user, roles);
+        _logger.LogInformation("Пользователь {Email} вошёл в систему", model.Email);
         return Ok(new { Token = token, Roles = roles });
+    }
+
+    /// <summary>
+    /// Проверяет, есть ли у пользователя активный срок депутата, и соответствующим образом корректирует его роли.
+    /// </summary>
+    private async Task EnsureDeputyRoleValidityAsync(ApplicationUser user)
+    {
+        bool isDeputy = await _userManager.IsInRoleAsync(user, RoleNames.Deputy);
+        var now = DateTime.UtcNow;
+
+        bool hasActiveTerm = await _context.DeputyTerms
+            .AnyAsync(t => t.DeputyId == user.Id && t.IsActive && t.StartDate <= now && t.EndDate >= now);
+
+        if (isDeputy && !hasActiveTerm)
+        {
+            // Срок истёк или депутат не имеет активного срока — лишаем роли
+            await _userManager.RemoveFromRoleAsync(user, RoleNames.Deputy);
+            if (!await _userManager.IsInRoleAsync(user, RoleNames.Citizen))
+                await _userManager.AddToRoleAsync(user, RoleNames.Citizen);
+
+            _logger.LogInformation("Роль депутата снята с пользователя {UserId} (нет активного срока)", user.Id);
+        }
+        else if (!isDeputy && hasActiveTerm)
+        {
+            // Срок активен, но роль отсутствует — восстанавливаем
+            await _userManager.AddToRoleAsync(user, RoleNames.Deputy);
+            // Убираем Citizen, если он был, чтобы не было двойной роли
+            if (await _userManager.IsInRoleAsync(user, RoleNames.Citizen))
+                await _userManager.RemoveFromRoleAsync(user, RoleNames.Citizen);
+
+            _logger.LogInformation("Роль депутата восстановлена для пользователя {UserId} (активный срок)", user.Id);
+        }
     }
 
     private string GenerateJwtToken(ApplicationUser user, IList<string> roles)
     {
+        var jwtSection = _configuration.GetSection("Jwt");
+        var key = Encoding.UTF8.GetBytes(jwtSection["Key"]!);
+        var issuer = jwtSection["Issuer"];
+        var audience = jwtSection["Audience"];
+        var expireDays = Convert.ToDouble(jwtSection["ExpireDays"]);
+
         var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id),
             new Claim(JwtRegisteredClaimNames.Email, user.Email!),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim("fullName", user.FullName)
+            new Claim(ClaimFullName, user.FullName)  // используем константу
         };
 
         claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expires = DateTime.UtcNow.AddDays(Convert.ToDouble(_configuration["Jwt:ExpireDays"]));
+        var signingCredentials = new SigningCredentials(
+            new SymmetricSecurityKey(key),
+            SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-            issuer: _configuration["Jwt:Issuer"],
-            audience: _configuration["Jwt:Audience"],
+            issuer: issuer,
+            audience: audience,
             claims: claims,
-            expires: expires,
-            signingCredentials: creds
+            expires: DateTime.UtcNow.AddDays(expireDays),
+            signingCredentials: signingCredentials
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);

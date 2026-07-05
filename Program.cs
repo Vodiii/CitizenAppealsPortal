@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Text.Json.Serialization;
+using CitizenAppealsPortal.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -177,6 +178,8 @@ else
 app.UseStaticFiles();
 
 app.UseRouting();   // явно включаем маршрутизацию (опционально, но рекомендуется)
+
+app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseCors("AllowFrontend");
 
