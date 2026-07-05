@@ -112,7 +112,7 @@ public class AppealsController : ControllerBase
                 Score = a.Score,
                 UpVotes = a.Votes.Count(v => v.VoteType == 1),
                 DownVotes = a.Votes.Count(v => v.VoteType == -1),
-                UserVote = a.Votes.Where(v => v.UserId == userId).Select(v => v.VoteType).FirstOrDefault(),
+                UserVote = a.Votes.Where(v => v.UserId == userId).Select(v => (int?)v.VoteType).FirstOrDefault(),
                 Photos = a.Photos.Select(p => new PhotoDto
                 {
                     Id = p.Id,
@@ -167,7 +167,7 @@ public class AppealsController : ControllerBase
             Score = appeal.Score,
             UpVotes = appeal.Votes.Count(v => v.VoteType == 1),
             DownVotes = appeal.Votes.Count(v => v.VoteType == -1),
-            UserVote = appeal.Votes.Where(v => v.UserId == userId).Select(v => v.VoteType).FirstOrDefault(),
+            UserVote = appeal.Votes.Where(v => v.UserId == userId).Select(v => (int?)v.VoteType).FirstOrDefault(),
             Photos = appeal.Photos.Select(p => new PhotoDto
             {
                 Id = p.Id,

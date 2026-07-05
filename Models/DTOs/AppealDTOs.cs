@@ -48,6 +48,8 @@ public class AppealDto
     public int DownVotes { get; set; }
     public List<PhotoDto> Photos { get; set; } = new();
     public List<AppealResponseDto> Responses { get; set; } = new();
+
+    public int? UserVote {get; set; } // null = не голосовал, 1 = лайк, -1 = дизлайк
 }
 
 public class PhotoDto
