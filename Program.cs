@@ -10,7 +10,12 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Text.Json.Serialization;
 using CitizenAppealsPortal.Middlewares;
-using Serilog;                        // <-- добавлено
+using Serilog;              
+using Microsoft.AspNetCore.RateLimiting;              
+using Asp.Versioning;                                
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;  
+using HealthChecks.UI.Client;           
+using System.Threading.RateLimiting;                   
 
 // ======================== Конфигурация Serilog ========================
 Log.Logger = new LoggerConfiguration()
@@ -26,7 +31,7 @@ try
     var builder = WebApplication.CreateBuilder(args);
 
     // Подключаем Serilog как провайдер логирования
-    builder.Host.UseSerilog();        // <-- добавлено
+    builder.Host.UseSerilog();        
 
     // Database
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -139,7 +144,30 @@ try
             });
     });
 
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.AddFixedWindowLimiter("Api", config =>
+        {
+            config.Window = TimeSpan.FromMinutes(1);
+            config.PermitLimit = 100;
+            config.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+            config.QueueLimit = 0;
+        });
+    });
+
+    builder.Services.AddApiVersioning(options =>
+    {
+        options.DefaultApiVersion = new ApiVersion(1, 0);
+        options.AssumeDefaultVersionWhenUnspecified = true;
+        options.ReportApiVersions = true;
+        options.ApiVersionReader = new UrlSegmentApiVersionReader();
+    });
+
+
     builder.Services.AddHttpClient();
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(builder.Configuration.GetConnectionString("DefaultConnection")!);
+
 
     var app = builder.Build();
 
@@ -195,9 +223,17 @@ try
 
     app.UseRouting();
 
+    app.UseRateLimiter();
+
     app.UseMiddleware<ExceptionMiddleware>();
 
     app.UseCors("AllowFrontend");
+
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    });
+
 
     app.UseAuthentication();
     app.UseAuthorization();
